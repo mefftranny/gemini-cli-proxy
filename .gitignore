@@ -2,6 +2,7 @@
 .env~
 .claude
 .gemini
+.crush
 
 node_modules
 
@@ -17,3 +18,4 @@ dist
 junit.xml
 coverage/
 
+CLAUDE.md

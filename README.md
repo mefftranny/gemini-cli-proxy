@@ -104,11 +104,3 @@ src/
 ├── types/          # TypeScript type definitions
 └── utils/          # Utility functions
 ```
-
-## Health Check
-
-The server provides a health check endpoint:
-
-```bash
-curl http://localhost:3000/health
-```
