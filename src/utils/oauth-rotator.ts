@@ -1,4 +1,4 @@
-import { promises as fs } from "node:fs";
+import { promises as fs, watch, type FSWatcher } from "node:fs";
 import path from "node:path";
 import { getLogger } from "./logger.js";
 import chalk from "chalk";
@@ -17,6 +17,8 @@ export class OAuthRotator {
     private allAccountsExhausted: boolean = false;
     private rotationInProgress: boolean = false;
     private rotationPromise: Promise<string | null> | null = null;
+    private folderWatcher: FSWatcher | null = null;
+    private refreshDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     /**
      * Singleton pattern - get the global instance
@@ -41,6 +43,7 @@ export class OAuthRotator {
             return;
         }
 
+        this.stopFolderWatcher();
         this.credentialFilePaths = paths;
         this.currentIndex = 0;
         this.isEnabled = true;
@@ -51,11 +54,12 @@ export class OAuthRotator {
 
     /**
      * Initialize rotator with a folder path containing OAuth credential files
-     * @param folderPath Path to folder containing OAuth JSON credential files
+     * @param folderPath Path to folder containing OAuth credential files
      */
     public async initializeWithFolder(folderPath: string): Promise<void> {
         if (!folderPath || folderPath.trim() === "") {
             this.isEnabled = false;
+            this.stopFolderWatcher();
             this.logger.info(
                 "OAuth rotation disabled: No folder path provided"
             );
@@ -71,12 +75,14 @@ export class OAuthRotator {
 
             if (jsonFiles.length === 0) {
                 this.isEnabled = false;
+                this.stopFolderWatcher();
                 this.logger.info(
                     `OAuth rotation disabled: No JSON files found in ${folderPath}`
                 );
                 return;
             }
 
+            this.stopFolderWatcher();
             this.credentialFilePaths = jsonFiles;
             this.currentIndex = 0;
             this.folderPath = folderPath;
@@ -84,13 +90,127 @@ export class OAuthRotator {
             this.logger.info(
                 `OAuth rotation enabled with ${jsonFiles.length} account(s) from folder: ${folderPath}`
             );
+
+            // Start watching the folder for changes
+            this.startFolderWatcher(folderPath);
         } catch (error) {
             this.isEnabled = false;
+            this.stopFolderWatcher();
             this.logger.error(
                 `Failed to initialize OAuth rotation from folder ${folderPath}`,
                 error
             );
         }
+    }
+
+    /**
+     * Start watching the OAuth folder for new credential files
+     * @param folderPath Path to the folder to watch
+     */
+    private startFolderWatcher(folderPath: string): void {
+        try {
+            this.stopFolderWatcher();
+
+            this.folderWatcher = watch(
+                folderPath,
+                { recursive: false },
+                (eventType, filename) => {
+                    if (eventType === "rename" && filename?.endsWith(".json")) {
+                        this.handleFolderChange(folderPath);
+                    }
+                }
+            );
+
+            this.logger.info(
+                `Started watching folder for OAuth changes: ${folderPath}`
+            );
+        } catch (error) {
+            this.logger.warn(
+                `Failed to start folder watcher for ${folderPath}`,
+                error
+            );
+        }
+    }
+
+    /**
+     * Stop the folder watcher if it's running
+     */
+    private stopFolderWatcher(): void {
+        if (this.folderWatcher) {
+            try {
+                this.folderWatcher.close();
+                this.logger.info("Stopped watching OAuth folder");
+            } catch (error) {
+                this.logger.warn("Error closing folder watcher", error);
+            }
+            this.folderWatcher = null;
+        }
+        if (this.refreshDebounceTimer) {
+            clearTimeout(this.refreshDebounceTimer);
+            this.refreshDebounceTimer = null;
+        }
+    }
+
+    /**
+     * Handle folder changes with debouncing to avoid multiple refreshes
+     * @param folderPath Path to the folder that changed
+     */
+    private handleFolderChange(folderPath: string): void {
+        // Debounce multiple rapid changes
+        if (this.refreshDebounceTimer) {
+            clearTimeout(this.refreshDebounceTimer);
+        }
+
+        this.refreshDebounceTimer = setTimeout(async () => {
+            try {
+                const files = await fs.readdir(folderPath);
+                const jsonFiles = files
+                    .filter((file) => file.endsWith(".json"))
+                    .map((file) => path.join(folderPath, file));
+
+                // Check if the file list has changed
+                const currentFiles = new Set(this.credentialFilePaths);
+                const newFiles = jsonFiles.filter((f) => !currentFiles.has(f));
+                const removedFiles = this.credentialFilePaths.filter(
+                    (f) => !jsonFiles.includes(f)
+                );
+
+                if (newFiles.length > 0 || removedFiles.length > 0) {
+                    const oldCount = this.credentialFilePaths.length;
+                    this.credentialFilePaths = jsonFiles;
+                    this.currentIndex = 0;
+                    this.allAccountsExhausted = false;
+
+                    this.logger.info(
+                        `OAuth credentials refreshed: ${oldCount} -> ${jsonFiles.length} account(s)`
+                    );
+
+                    if (newFiles.length > 0) {
+                        this.logger.info(
+                            `New credential(s) detected: ${newFiles
+                                .map((f) => path.basename(f))
+                                .join(", ")}`
+                        );
+                    }
+
+                    if (removedFiles.length > 0) {
+                        this.logger.info(
+                            `Credential(s) removed: ${removedFiles
+                                .map((f) => path.basename(f))
+                                .join(", ")}`
+                        );
+                    }
+
+                    if (this.credentialFilePaths.length < 2) {
+                        this.logger.warn(
+                            "OAuth rotation disabled: Less than 2 credential files available"
+                        );
+                    }
+                }
+            } catch (error) {
+                this.logger.error("Failed to refresh OAuth credentials", error);
+            }
+        }, 1000); // Wait 1 second after the last change before refreshing
     }
 
     /**
@@ -298,5 +418,12 @@ export class OAuthRotator {
             return null;
         }
         return this.credentialFilePaths[this.currentIndex];
+    }
+
+    /**
+     * Clean up resources (call when shutting down the server)
+     */
+    public dispose(): void {
+        this.stopFolderWatcher();
     }
 }

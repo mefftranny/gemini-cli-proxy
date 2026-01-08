@@ -163,6 +163,10 @@ export async function startServer() {
             isShuttingDown = true;
 
             logger.info(`\n${signal} received. Shutting down gracefully...`);
+
+            // Clean up OAuth rotator resources
+            OAuthRotator.getInstance().dispose();
+
             server.close(() => {
                 logger.info("Server closed.");
                 process.exit(0);
