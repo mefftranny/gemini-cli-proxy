@@ -47,6 +47,16 @@ const program = new Command()
         "Path to folder containing OAuth credential files for rotation",
         ""
     )
+    .option(
+        "--oauth-reset-timezone <offset>",
+        "Timezone offset for time-based index reset (e.g., -8 for Pacific Time)",
+        "-8"
+    )
+    .option(
+        "--oauth-reset-hour <hour>",
+        "Hour of day to reset OAuth index (0-23, default 0 for midnight)",
+        "0"
+    )
     .parse(process.argv);
 
 const opts = program.opts();
@@ -71,6 +81,19 @@ export async function startServer() {
         if (opts.oauthRotationFolder) {
             await OAuthRotator.getInstance().initializeWithFolder(
                 opts.oauthRotationFolder
+            );
+        }
+
+        // Configure time-based reset if OAuth rotation is enabled
+        if (opts.oauthRotationPaths || opts.oauthRotationFolder) {
+            const timezoneOffset = parseInt(
+                opts.oauthResetTimezone || "-8",
+                10
+            );
+            const resetHour = parseInt(opts.oauthResetHour || "0", 10);
+            OAuthRotator.getInstance().setTimeBasedReset(
+                timezoneOffset,
+                resetHour
             );
         }
 

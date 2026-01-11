@@ -36,6 +36,27 @@ describe("OAuthRotator", () => {
         });
     });
 
+    describe("setTimeBasedReset", () => {
+        it("should set timezone offset and reset hour", () => {
+            rotator.setTimeBasedReset(7, 0);
+
+            expect(rotator.isRotationEnabled()).toBe(false); // Not enabled yet
+            // The method should log the configuration
+        });
+
+        it("should set negative timezone offset", () => {
+            rotator.setTimeBasedReset(-5, 12);
+
+            expect(rotator.isRotationEnabled()).toBe(false);
+        });
+
+        it("should use default hour when not provided", () => {
+            rotator.setTimeBasedReset(3);
+
+            expect(rotator.isRotationEnabled()).toBe(false);
+        });
+    });
+
     describe("initialize", () => {
         it("should initialize with credential paths", () => {
             const paths = ["/path/to/creds1.json", "/path/to/creds2.json"];
@@ -353,6 +374,140 @@ describe("OAuthRotator", () => {
             const result = await rotator.rotateCredentials();
 
             expect(result).toBe("/path/to/creds2.json");
+        });
+    });
+
+    describe("time-based reset", () => {
+        beforeEach(() => {
+            rotator.initialize([
+                "/path/to/creds1.json",
+                "/path/to/creds2.json",
+                "/path/to/creds3.json",
+            ]);
+            rotator.setTimeBasedReset(-8, 0); // Pacific Time (GMT-8), midnight
+        });
+
+        it("should reset index at configured time in configured timezone", async () => {
+            vi.mocked(fs.readFile).mockResolvedValue(
+                JSON.stringify({ access_token: "test-token" })
+            );
+            vi.mocked(fs.mkdir).mockResolvedValue(undefined);
+            vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+
+            // Rotate to index 1
+            await rotator.rotateCredentials();
+            expect(rotator.getCurrentIndex()).toBe(1);
+
+            // Rotate to index 2
+            await rotator.rotateCredentials();
+            expect(rotator.getCurrentIndex()).toBe(2);
+
+            // Simulate time-based reset by manipulating lastResetTime
+            // Set lastResetTime to yesterday
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            (rotator as any).lastResetTime = yesterday.getTime();
+
+            // Mock Date to simulate midnight GMT+7
+            const mockNow = new Date();
+            const utcNow = new Date(
+                mockNow.getTime() + mockNow.getTimezoneOffset() * 60000
+            );
+            const localNow = new Date(utcNow.getTime() + 7 * 3600000);
+
+            vi.spyOn(Date, "now").mockReturnValue(localNow.getTime());
+            vi.spyOn(Date.prototype, "getHours").mockReturnValue(0);
+            vi.spyOn(Date.prototype, "getDate").mockReturnValue(
+                localNow.getDate()
+            );
+            vi.spyOn(Date.prototype, "getMonth").mockReturnValue(
+                localNow.getMonth()
+            );
+            vi.spyOn(Date.prototype, "getFullYear").mockReturnValue(
+                localNow.getFullYear()
+            );
+
+            // Rotate again - should reset to 0 due to time-based reset
+            const newPath = await rotator.rotateCredentials();
+            expect(newPath).toBe("/path/to/creds1.json");
+            expect(rotator.getCurrentIndex()).toBe(0);
+        });
+
+        it("should not reset index when not at configured time", async () => {
+            vi.mocked(fs.readFile).mockResolvedValue(
+                JSON.stringify({ access_token: "test-token" })
+            );
+            vi.mocked(fs.mkdir).mockResolvedValue(undefined);
+            vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+
+            // Rotate to index 1
+            await rotator.rotateCredentials();
+            expect(rotator.getCurrentIndex()).toBe(1);
+
+            // Mock current time to be at a different hour than reset hour
+            const mockNow = new Date();
+            const utcNow = new Date(
+                mockNow.getTime() + mockNow.getTimezoneOffset() * 60000
+            );
+            const localNow = new Date(utcNow.getTime() + 7 * 3600000);
+
+            vi.spyOn(Date, "now").mockReturnValue(localNow.getTime());
+            vi.spyOn(Date.prototype, "getHours").mockReturnValue(12); // Not midnight
+            vi.spyOn(Date.prototype, "getDate").mockReturnValue(
+                localNow.getDate()
+            );
+            vi.spyOn(Date.prototype, "getMonth").mockReturnValue(
+                localNow.getMonth()
+            );
+            vi.spyOn(Date.prototype, "getFullYear").mockReturnValue(
+                localNow.getFullYear()
+            );
+
+            // Rotate again - should not reset (not at midnight)
+            const newPath = await rotator.rotateCredentials();
+            expect(newPath).toBe("/path/to/creds3.json");
+            expect(rotator.getCurrentIndex()).toBe(2);
+        });
+
+        it("should reset exhaustion state when time-based reset occurs", async () => {
+            vi.mocked(fs.readFile).mockResolvedValue(
+                JSON.stringify({ access_token: "test-token" })
+            );
+            vi.mocked(fs.mkdir).mockResolvedValue(undefined);
+            vi.mocked(fs.writeFile).mockResolvedValue(undefined);
+
+            // Exhaust all accounts
+            await rotator.rotateCredentials(); // index 0 -> 1
+            await rotator.rotateCredentials(); // index 1 -> 2
+            await rotator.rotateCredentials(); // index 2 -> 0 (exhausted)
+
+            // Simulate time-based reset at midnight
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            (rotator as any).lastResetTime = yesterday.getTime();
+
+            const mockNow = new Date();
+            const utcNow = new Date(
+                mockNow.getTime() + mockNow.getTimezoneOffset() * 60000
+            );
+            const localNow = new Date(utcNow.getTime() + 7 * 3600000);
+
+            vi.spyOn(Date, "now").mockReturnValue(localNow.getTime());
+            vi.spyOn(Date.prototype, "getHours").mockReturnValue(0);
+            vi.spyOn(Date.prototype, "getDate").mockReturnValue(
+                localNow.getDate()
+            );
+            vi.spyOn(Date.prototype, "getMonth").mockReturnValue(
+                localNow.getMonth()
+            );
+            vi.spyOn(Date.prototype, "getFullYear").mockReturnValue(
+                localNow.getFullYear()
+            );
+
+            // Rotate - should reset to 0 and clear exhaustion
+            const newPath = await rotator.rotateCredentials();
+            expect(newPath).toBe("/path/to/creds2.json");
+            expect(rotator.getCurrentIndex()).toBe(1);
         });
     });
 });

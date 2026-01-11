@@ -19,6 +19,9 @@ export class OAuthRotator {
     private rotationPromise: Promise<string | null> | null = null;
     private folderWatcher: FSWatcher | null = null;
     private refreshDebounceTimer: ReturnType<typeof setTimeout> | null = null;
+    private lastResetTime: number = Date.now();
+    private resetTimezoneOffset: number = -8; // Pacific Time (GMT-8) by default
+    private resetHour: number = 0; // Midnight by default
 
     /**
      * Singleton pattern - get the global instance
@@ -28,6 +31,21 @@ export class OAuthRotator {
             OAuthRotator.instance = new OAuthRotator();
         }
         return OAuthRotator.instance;
+    }
+
+    /**
+     * Set the timezone offset and reset hour for time-based index reset
+     * @param timezoneOffset Timezone offset from GMT (e.g., 7 for GMT+7)
+     * @param hour Hour of day to reset (0-23, default 0 for midnight)
+     */
+    public setTimeBasedReset(timezoneOffset: number, hour: number = 0): void {
+        this.resetTimezoneOffset = timezoneOffset;
+        this.resetHour = hour;
+        this.logger.info(
+            `Time-based reset configured: GMT${
+                timezoneOffset >= 0 ? "+" : ""
+            }${timezoneOffset} at ${hour}:00`
+        );
     }
 
     /**
@@ -290,6 +308,53 @@ export class OAuthRotator {
     }
 
     /**
+     * Check if time-based reset should occur
+     * Resets index to 0 at the configured time in the configured timezone
+     * @returns true if reset occurred, false otherwise
+     */
+    private shouldResetIndex(): boolean {
+        const now = new Date();
+        const utcNow = new Date(
+            now.getTime() + now.getTimezoneOffset() * 60000
+        );
+        const localNow = new Date(
+            utcNow.getTime() + this.resetTimezoneOffset * 3600000
+        );
+
+        const currentHour = localNow.getHours();
+        const currentDay = localNow.getDate();
+        const currentMonth = localNow.getMonth();
+        const currentYear = localNow.getFullYear();
+
+        const lastReset = new Date(this.lastResetTime);
+        const lastResetDay = lastReset.getDate();
+        const lastResetMonth = lastReset.getMonth();
+        const lastResetYear = lastReset.getFullYear();
+
+        // Reset at configured hour in configured timezone if we're in a new day
+        if (
+            currentHour === this.resetHour &&
+            (currentDay !== lastResetDay ||
+                currentMonth !== lastResetMonth ||
+                currentYear !== lastResetYear)
+        ) {
+            this.currentIndex = 0;
+            this.lastResetTime = Date.now();
+            this.allAccountsExhausted = false;
+            this.logger.info(
+                `Time-based reset: Index reset to 0 at ${
+                    this.resetHour
+                }:00 GMT${this.resetTimezoneOffset >= 0 ? "+" : ""}${
+                    this.resetTimezoneOffset
+                }`
+            );
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
      * Check if rotation is enabled
      */
     public isRotationEnabled(): boolean {
@@ -312,6 +377,9 @@ export class OAuthRotator {
         if (!this.isRotationEnabled()) {
             return null;
         }
+
+        // Check if time-based reset should occur
+        this.shouldResetIndex();
 
         // Prevent concurrent rotations - if a rotation is in progress, wait for it
         if (this.rotationInProgress && this.rotationPromise) {
