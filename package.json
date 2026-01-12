@@ -14,7 +14,7 @@
         "lint": "eslint . --ext .ts",
         "test": "vitest run",
         "test:cov": "vitest run --coverage",
-        "deploy": "git pull origin main && yarn install && pm2 restart gemini-proxy"
+        "deploy": "git pull origin main && yarn install && yarn build && pm2 restart gemini-proxy"
 
     },
     "engines": {
