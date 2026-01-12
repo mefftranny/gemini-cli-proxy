@@ -17,9 +17,10 @@ export const RATE_LIMIT_STATUS_CODES = [429, 503] as const;
 export const AUTO_SWITCH_MODEL_MAP = {
     "gemini-2.5-pro": "gemini-2.5-flash",
     "gemini-2.5-flash": "gemini-2.5-flash-lite",
+    "gemini-2.5-flash-lite": null,
     "gemini-3-pro-preview": "gemini-3-flash-preview",
     "gemini-3-flash-preview": "gemini-2.5-flash",
 } as const;
 
 // Cooldown Configuration
-export const DEFAULT_COOLDOWN_MINUTES = 10;
+export const DEFAULT_COOLDOWN_MINUTES = 1;
