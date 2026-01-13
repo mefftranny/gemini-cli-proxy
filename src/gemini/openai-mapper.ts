@@ -238,6 +238,7 @@ const thinkingBudgetMap: Record<OpenAI.ReasoningEffort, number> = {
     [OpenAI.ReasoningEffort.low]: 1024,
     [OpenAI.ReasoningEffort.medium]: 8192,
     [OpenAI.ReasoningEffort.high]: 24576,
+    [OpenAI.ReasoningEffort.xhigh]: 32768,
 };
 
 const convertOpenAIFunctionToGemini = (

@@ -8,7 +8,7 @@ export type ChatCompletionRequest = {
     reasoning_effort?: ReasoningEffort;
     reasoning?: {
         effort?: ReasoningEffort;
-    }
+    };
     tools?: Tool[];
     tool_choice?: ToolChoice;
 };
@@ -17,6 +17,7 @@ export enum ReasoningEffort {
     low = "low",
     medium = "medium",
     high = "high",
+    xhigh = "xhigh",
 }
 
 export type Tool = {
@@ -30,7 +31,10 @@ export type FunctionDeclaration = {
     parameters: object;
 };
 
-export type ToolChoice = "none" | "auto" | {type: "function"; function: {name: string}};
+export type ToolChoice =
+    | "none"
+    | "auto"
+    | { type: "function"; function: { name: string } };
 
 export type ToolCall = {
     index: number;
@@ -105,12 +109,14 @@ export type StreamChunk = {
     object: string;
     created: number;
     model: string;
-    choices: [{
-        index: number;
-        delta: StreamDelta;
-        finish_reason: string | null;
-        logprobs?: null;
-    }];
+    choices: [
+        {
+            index: number;
+            delta: StreamDelta;
+            finish_reason: string | null;
+            logprobs?: null;
+        }
+    ];
     usage?: UsageData | null;
 };
 
