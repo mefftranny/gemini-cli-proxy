@@ -1,5 +1,5 @@
 import express from "express";
-import { GeminiApiClient } from "../gemini/client.js";
+import { GeminiApiClient, GeminiApiError } from "../gemini/client.js";
 import * as Gemini from "../types/gemini.js";
 import * as OpenAI from "../types/openai.js";
 import { mapOpenAIChatCompletionRequestToGemini } from "../gemini/openai-mapper.js";
@@ -89,11 +89,7 @@ export function createOpenAIRouter(
                         await writer.close();
                     } catch (error) {
                         logger.error("stream error", error);
-                        const errorMessage =
-                            error instanceof Error
-                                ? error.message
-                                : "Unknown stream error";
-                        await writer.abort(errorMessage);
+                        await writer.abort(error);
                     }
                 })();
 
@@ -160,23 +156,74 @@ export function createOpenAIRouter(
 
                     res.json(response);
                 } catch (completionError: unknown) {
-                    const errorMessage =
-                        completionError instanceof Error
-                            ? completionError.message
-                            : String(completionError);
                     logger.error("completion error", completionError);
-                    res.status(500).json({ error: errorMessage });
+
+                    let statusCode = 500;
+                    let errorMessage = "An unknown error occurred";
+                    let errorDetails: any = undefined;
+
+                    if (completionError instanceof GeminiApiError) {
+                        statusCode = completionError.statusCode;
+                        errorMessage = completionError.message;
+                        if (completionError.responseText) {
+                            try {
+                                const parsed = JSON.parse(
+                                    completionError.responseText
+                                );
+                                if (parsed.error) {
+                                    errorDetails = parsed.error;
+                                }
+                            } catch {
+                                // ignore parsing error
+                            }
+                        }
+                    } else if (completionError instanceof Error) {
+                        errorMessage = completionError.message;
+                    } else {
+                        errorMessage = String(completionError);
+                    }
+
+                    res.status(statusCode).json({
+                        error: errorDetails || {
+                            message: errorMessage,
+                            code: statusCode,
+                        },
+                    });
                 }
             }
         } catch (error) {
-            const errorMessage =
-                error instanceof Error
-                    ? error.message
-                    : "An unknown error occurred";
             logger.error("completion error", error);
 
+            let statusCode = 500;
+            let errorMessage = "An unknown error occurred";
+            let errorDetails: any = undefined;
+
+            if (error instanceof GeminiApiError) {
+                statusCode = error.statusCode;
+                errorMessage = error.message;
+                if (error.responseText) {
+                    try {
+                        const parsed = JSON.parse(error.responseText);
+                        if (parsed.error) {
+                            errorDetails = parsed.error;
+                        }
+                    } catch {
+                        // ignore parsing error
+                    }
+                }
+            } else if (error instanceof Error) {
+                errorMessage = error.message;
+            } else {
+                errorMessage = String(error);
+            }
+
             if (!res.headersSent) {
-                res.status(500).json({ error: errorMessage });
+                res.status(statusCode).json({
+                    error: errorDetails || {
+                        message: errorMessage,
+                        code: statusCode,
+                    },
+                });
             } else {
                 res.end();
             }
