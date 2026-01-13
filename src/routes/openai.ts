@@ -80,7 +80,7 @@ export function createOpenAIRouter(
                     try {
                         const geminiStream = geminiClient.streamContent(
                             geminiCompletionRequest,
-                            false, // isRetry
+                            0, // retryCount
                             isExplicitModelRequest // Pass explicit model request flag
                         );
                         for await (const chunk of geminiStream) {
@@ -107,7 +107,7 @@ export function createOpenAIRouter(
                 try {
                     const completion = await geminiClient.getCompletion(
                         geminiCompletionRequest,
-                        false, // isRetry
+                        0, // retryCount
                         isExplicitModelRequest // Pass explicit model request flag
                     );
 

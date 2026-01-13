@@ -87,6 +87,11 @@ export class AutoModelSwitchingHelper {
      * @returns {boolean} True if status code is in RATE_LIMIT_STATUS_CODES
      */
     public isRateLimitStatus(statusCode: number): boolean {
+        // 403 is now handled by OAuth rotation, so we don't treat it as a rate limit for model switching
+        // unless all OAuth accounts are exhausted (which is handled in the client)
+        if (statusCode === 403) {
+            return false;
+        }
         return (RATE_LIMIT_STATUS_CODES as readonly number[]).includes(
             statusCode
         );

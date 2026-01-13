@@ -27,6 +27,10 @@ describe("GeminiApiClient", () => {
         mockOAuthRotator = {
             isRotationEnabled: vi.fn().mockReturnValue(false),
             rotateCredentials: vi.fn(),
+            getAccountCount: vi.fn().mockReturnValue(1),
+            getCurrentAccountPath: vi
+                .fn()
+                .mockReturnValue("/path/to/current.json"),
         };
 
         vi.mocked(OAuth2Client).mockImplementation(() => mockAuthClient);
@@ -294,6 +298,7 @@ describe("GeminiApiClient", () => {
             });
 
             mockOAuthRotator.isRotationEnabled.mockReturnValue(true);
+            mockOAuthRotator.getAccountCount.mockReturnValue(2);
             mockOAuthRotator.rotateCredentials.mockResolvedValue(
                 "/path/to/creds.json"
             );
@@ -302,6 +307,39 @@ describe("GeminiApiClient", () => {
                 ok: false,
                 status: 429,
                 text: async () => "Rate limit exceeded",
+            } as Response);
+
+            await expect(
+                client.getCompletion({
+                    model: "test-model",
+                    contents: [{ role: "user", parts: [{ text: "Hello" }] }],
+                } as any)
+            ).rejects.toThrow();
+
+            expect(mockOAuthRotator.rotateCredentials).toHaveBeenCalled();
+        });
+
+        it("should attempt OAuth rotation on 403 errors", async () => {
+            const client = new GeminiApiClient(
+                mockAuthClient,
+                "test-project",
+                false
+            );
+
+            mockAuthClient.getAccessToken.mockResolvedValue({
+                token: "test-token",
+            });
+
+            mockOAuthRotator.isRotationEnabled.mockReturnValue(true);
+            mockOAuthRotator.getAccountCount.mockReturnValue(2);
+            mockOAuthRotator.rotateCredentials.mockResolvedValue(
+                "/path/to/creds.json"
+            );
+
+            global.fetch = vi.fn().mockResolvedValue({
+                ok: false,
+                status: 403,
+                text: async () => "Forbidden",
             } as Response);
 
             await expect(

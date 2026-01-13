@@ -14,6 +14,7 @@ import { getLogger, Logger } from "../utils/logger.js";
 import { OAuthRotator } from "../utils/oauth-rotator.js";
 import { getCachedCredentialPath } from "../utils/paths.js";
 import { promises as fs } from "node:fs";
+import path from "node:path";
 import chalk from "chalk";
 
 /**
@@ -218,7 +219,7 @@ export class GeminiApiClient {
     private async callEndpoint(
         method: string,
         body: Record<string, unknown>,
-        isRetry: boolean = false
+        retryCount: number = 0
     ): Promise<unknown> {
         const { token } = await this.authClient.getAccessToken();
         const response = await fetch(
@@ -236,14 +237,22 @@ export class GeminiApiClient {
         if (!response.ok) {
             const errorText = await response.text();
 
-            // Handle 429 rate limit errors with OAuth rotation
+            // Handle 429 rate limit and 403 forbidden errors with OAuth rotation
             if (
-                response.status === 429 &&
-                !isRetry &&
+                (response.status === 429 || response.status === 403) &&
+                retryCount < OAuthRotator.getInstance().getAccountCount() &&
                 OAuthRotator.getInstance().isRotationEnabled()
             ) {
+                const currentAccount =
+                    OAuthRotator.getInstance().getCurrentAccountPath();
+                const filename = currentAccount
+                    ? path.basename(currentAccount)
+                    : "unknown";
+                this.logger.warn(
+                    `Error ${response.status} detected on account ${filename}. Message: ${errorText}`
+                );
                 this.logger.info(
-                    "Rate limit (429) detected, attempting OAuth rotation..."
+                    `Attempting OAuth rotation due to ${response.status}...`
                 );
 
                 try {
@@ -275,31 +284,30 @@ export class GeminiApiClient {
                             );
                         }
 
-                        // Retry request once with new credentials
+                        // Retry request with new credentials
                         try {
-                            return await this.callEndpoint(method, body, true);
+                            return await this.callEndpoint(
+                                method,
+                                body,
+                                retryCount + 1
+                            );
                         } catch (retryError) {
-                            // Check if all accounts are exhausted
+                            // If the retry failed, we check if we should continue rotating
+                            // The recursive call will handle further rotations if applicable
+                            // We only throw here if we've exhausted retries or rotation is disabled
                             if (
-                                OAuthRotator.getInstance().isRotationEnabled()
+                                retryCount + 1 >=
+                                OAuthRotator.getInstance().getAccountCount()
                             ) {
                                 const accountCount =
                                     OAuthRotator.getInstance().getAccountCount();
                                 throw new GeminiApiError(
-                                    `All ${accountCount} OAuth accounts have been exhausted with rate limits. Please wait before retrying.`,
+                                    `All ${accountCount} OAuth accounts have been exhausted. Last error: ${response.status}`,
                                     response.status,
                                     errorText
                                 );
                             }
-                            this.logger.error(
-                                "Retry after OAuth rotation failed",
-                                retryError
-                            );
-                            throw new GeminiApiError(
-                                `API call failed with status ${response.status}: ${errorText}`,
-                                response.status,
-                                errorText
-                            );
+                            throw retryError;
                         }
                     }
                 } catch (rotationError) {
@@ -326,7 +334,7 @@ export class GeminiApiClient {
      */
     async getCompletion(
         geminiCompletionRequest: Gemini.ChatCompletionRequest,
-        isRetry: boolean = false,
+        retryCount: number = 0,
         isExplicitModelRequest: boolean = false
     ): Promise<{
         content: string;
@@ -342,7 +350,7 @@ export class GeminiApiClient {
             const chunks: OpenAI.StreamChunk[] = [];
             for await (const chunk of this.streamContent(
                 geminiCompletionRequest,
-                isRetry,
+                retryCount,
                 isExplicitModelRequest
             )) {
                 chunks.push(chunk);
@@ -401,7 +409,7 @@ export class GeminiApiClient {
                         } as Gemini.ChatCompletionRequest;
                         return await this.getCompletion(
                             updatedRequest,
-                            isRetry
+                            retryCount
                         );
                     }
                 )) as Promise<{
@@ -423,11 +431,14 @@ export class GeminiApiClient {
      */
     async *streamContent(
         geminiCompletionRequest: Gemini.ChatCompletionRequest,
-        isRetry: boolean = false,
+        retryCount: number = 0,
         isExplicitModelRequest: boolean = false
     ): AsyncGenerator<OpenAI.StreamChunk> {
         try {
-            yield* this.streamContentInternal(geminiCompletionRequest, isRetry);
+            yield* this.streamContentInternal(
+                geminiCompletionRequest,
+                retryCount
+            );
         } catch (error) {
             if (
                 error instanceof GeminiApiError &&
@@ -460,7 +471,7 @@ export class GeminiApiClient {
                         );
                         yield* fallbackClient.streamContent(
                             updatedRequest,
-                            isRetry
+                            retryCount
                         );
                     },
                     "openai"
@@ -476,7 +487,7 @@ export class GeminiApiClient {
      */
     private async *streamContentInternal(
         geminiCompletionRequest: Gemini.ChatCompletionRequest,
-        isRetry: boolean = false
+        retryCount: number = 0
     ): AsyncGenerator<OpenAI.StreamChunk> {
         const { token } = await this.authClient.getAccessToken();
         const response = await fetch(
@@ -495,26 +506,34 @@ export class GeminiApiClient {
             const errorText = await response.text();
 
             // Handle 401 errors with token refresh
-            if (response.status === 401 && !isRetry) {
+            if (response.status === 401 && retryCount === 0) {
                 this.logger.info(
                     "Got 401 error, forcing token refresh and retrying..."
                 );
                 this.authClient.credentials.access_token = undefined;
                 yield* this.streamContentInternal(
                     geminiCompletionRequest,
-                    true
+                    retryCount + 1
                 );
                 return;
             }
 
-            // Handle 429 rate limit errors with OAuth rotation
+            // Handle 429 rate limit and 403 forbidden errors with OAuth rotation
             if (
-                response.status === 429 &&
-                !isRetry &&
+                (response.status === 429 || response.status === 403) &&
+                retryCount < OAuthRotator.getInstance().getAccountCount() &&
                 OAuthRotator.getInstance().isRotationEnabled()
             ) {
+                const currentAccount =
+                    OAuthRotator.getInstance().getCurrentAccountPath();
+                const filename = currentAccount
+                    ? path.basename(currentAccount)
+                    : "unknown";
+                this.logger.warn(
+                    `Error ${response.status} detected in stream on account ${filename}. Message: ${errorText}`
+                );
                 this.logger.info(
-                    "Rate limit (429) detected in stream, attempting OAuth rotation..."
+                    `Attempting OAuth rotation in stream due to ${response.status}...`
                 );
 
                 try {
@@ -550,26 +569,24 @@ export class GeminiApiClient {
                         try {
                             yield* this.streamContentInternal(
                                 geminiCompletionRequest,
-                                true
+                                retryCount + 1
                             );
                             return;
                         } catch (retryError) {
                             // Check if all accounts are exhausted
                             if (
-                                OAuthRotator.getInstance().isRotationEnabled()
+                                retryCount + 1 >=
+                                OAuthRotator.getInstance().getAccountCount()
                             ) {
                                 const accountCount =
                                     OAuthRotator.getInstance().getAccountCount();
                                 throw new GeminiApiError(
-                                    `All ${accountCount} OAuth accounts have been exhausted with rate limits. Please wait before retrying.`,
+                                    `All ${accountCount} OAuth accounts have been exhausted. Last error: ${response.status}`,
                                     response.status,
                                     errorText
                                 );
                             }
-                            this.logger.error(
-                                "Retry after OAuth rotation failed in stream",
-                                retryError
-                            );
+                            throw retryError;
                         }
                     }
                 } catch (rotationError) {
