@@ -663,6 +663,7 @@ export class GeminiApiClient {
         let toolCallId: string | undefined = undefined;
         let usageData: OpenAI.UsageData | undefined;
         let reasoningTokens = 0;
+        let inThoughtBlock = false;
 
         for await (const jsonData of this.parseSSEStream(response.body)) {
             const candidate = jsonData.response?.candidates?.[0];
@@ -672,20 +673,34 @@ export class GeminiApiClient {
                     if ("text" in part) {
                         // Handle text content
                         if (part.thought === true) {
-                            // Handle thinking/reasoning content from Gemini
-                            // Send as separate reasoning field for Kilo Code compatibility
-                            const reasoningDelta: OpenAI.StreamDelta = {
-                                reasoning: part.text,
-                            };
-                            if (this.firstChunk) {
-                                reasoningDelta.role = "assistant";
-                                this.firstChunk = false;
+                            if (!inThoughtBlock) {
+                                inThoughtBlock = true;
+                                const delta: OpenAI.StreamDelta = {
+                                    content: "<thinking>\n",
+                                };
+                                if (this.firstChunk) {
+                                    delta.role = "assistant";
+                                    this.firstChunk = false;
+                                }
+                                yield this.createOpenAIChunk(
+                                    delta,
+                                    geminiCompletionRequest.model
+                                );
                             }
+
                             yield this.createOpenAIChunk(
-                                reasoningDelta,
+                                { content: part.text },
                                 geminiCompletionRequest.model
                             );
                         } else {
+                            if (inThoughtBlock) {
+                                inThoughtBlock = false;
+                                yield this.createOpenAIChunk(
+                                    { content: "\n</thinking>\n\n" },
+                                    geminiCompletionRequest.model
+                                );
+                            }
+
                             // Handle regular content
                             const delta: OpenAI.StreamDelta = {
                                 content: part.text,
@@ -700,6 +715,14 @@ export class GeminiApiClient {
                             );
                         }
                     } else if ("functionCall" in part) {
+                        if (inThoughtBlock) {
+                            inThoughtBlock = false;
+                            yield this.createOpenAIChunk(
+                                { content: "\n</thinking>\n\n" },
+                                geminiCompletionRequest.model
+                            );
+                        }
+
                         // Handle function calls from Gemini
                         toolCallId = `call_${crypto.randomUUID()}`;
                         const delta: OpenAI.StreamDelta = {
@@ -743,6 +766,13 @@ export class GeminiApiClient {
                     total_tokens: prompt_tokens + completion_tokens,
                 };
             }
+        }
+
+        if (inThoughtBlock) {
+            yield this.createOpenAIChunk(
+                { content: "\n</thinking>\n\n" },
+                geminiCompletionRequest.model
+            );
         }
 
         // Send final chunk with usage data
