@@ -12,10 +12,15 @@ import {
 } from "./auto-model-switching.js";
 import { getLogger, Logger } from "../utils/logger.js";
 import { OAuthRotator } from "../utils/oauth-rotator.js";
-import { getCachedCredentialPath } from "../utils/paths.js";
+import {
+    getCachedCredentialPath,
+    getProjectCachePath,
+} from "../utils/paths.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import chalk from "chalk";
+import { TokenManager } from "../auth/token-manager.js";
+import * as https from "node:https";
 
 /**
  * Custom error class for Gemini API errors with status code information
@@ -42,6 +47,7 @@ export class GeminiApiClient {
     private readonly chatID: string;
     private readonly autoSwitcher: AutoModelSwitchingHelper;
     private readonly logger: Logger;
+    private readonly httpsAgent: https.Agent;
 
     constructor(
         private readonly authClient: OAuth2Client,
@@ -53,6 +59,11 @@ export class GeminiApiClient {
         this.creationTime = Math.floor(Date.now() / 1000);
         this.autoSwitcher = AutoModelSwitchingHelper.getInstance();
         this.logger = getLogger("GEMINI-CLIENT", chalk.blue);
+        this.httpsAgent = new https.Agent({
+            keepAlive: true,
+            maxSockets: 50,
+            timeout: 60000,
+        });
 
         // Eagerly start project discovery to reduce latency on the first request
         void this.discoverProjectId();
@@ -79,6 +90,13 @@ export class GeminiApiClient {
             // IMPORTANT: Reset cached projectId to prevent 403 errors
             // Each OAuth account may have a different associated project
             this.projectId = null;
+            TokenManager.getInstance().clearCache();
+            // Also clear persistent project cache
+            try {
+                await fs.rm(getProjectCachePath(), { force: true });
+            } catch (e) {
+                // Ignore
+            }
             this.logger.info("Project ID cache cleared for new OAuth account");
 
             // Always trigger token refresh after rotation
@@ -169,6 +187,22 @@ export class GeminiApiClient {
 
         this.projectIdPromise = (async () => {
             try {
+                // Check persistent cache first
+                const cachePath = getProjectCachePath();
+                try {
+                    const cacheContent = await fs.readFile(cachePath, "utf-8");
+                    const cache = JSON.parse(cacheContent);
+                    if (cache.projectId) {
+                        this.projectId = cache.projectId;
+                        this.logger.info(
+                            `Project ID loaded from cache: ${this.projectId}`
+                        );
+                        return this.projectId;
+                    }
+                } catch (e) {
+                    // Cache doesn't exist or is invalid, proceed with discovery
+                }
+
                 const initialProjectId = "default-project";
                 const loadResponse = (await this.callEndpoint(
                     "loadCodeAssist",
@@ -180,44 +214,73 @@ export class GeminiApiClient {
 
                 if (loadResponse.cloudaicompanionProject) {
                     this.projectId = loadResponse.cloudaicompanionProject;
-                    return this.projectId;
-                }
-
-                const defaultTier = loadResponse.allowedTiers?.find(
-                    (tier) => tier.isDefault
-                );
-                const tierId = defaultTier?.id ?? "free-tier";
-                const onboardRequest = {
-                    tierId,
-                    cloudaicompanionProject: initialProjectId,
-                };
-
-                // Poll until operation is complete with timeout protection
-                const MAX_RETRIES = 30;
-                let retryCount = 0;
-                let lroResponse: Gemini.OnboardUserResponse | undefined;
-                while (retryCount < MAX_RETRIES) {
-                    lroResponse = (await this.callEndpoint(
-                        "onboardUser",
-                        onboardRequest
-                    )) as Gemini.OnboardUserResponse;
-                    if (lroResponse.done) {
-                        break;
-                    }
-                    // Reduced polling interval for faster discovery
-                    await new Promise((resolve) => setTimeout(resolve, 500));
-                    retryCount++;
-                }
-
-                if (!lroResponse?.done) {
-                    this.logger.warn(
-                        "Project discovery timed out, continuing without project ID"
+                } else {
+                    const defaultTier = loadResponse.allowedTiers?.find(
+                        (tier) => tier.isDefault
                     );
-                    return null;
+                    const tierId = defaultTier?.id ?? "free-tier";
+                    const onboardRequest = {
+                        tierId,
+                        cloudaicompanionProject: initialProjectId,
+                    };
+
+                    // Poll until operation is complete with timeout protection
+                    const MAX_RETRIES = 30;
+                    let retryCount = 0;
+                    let lroResponse: Gemini.OnboardUserResponse | undefined;
+                    while (retryCount < MAX_RETRIES) {
+                        lroResponse = (await this.callEndpoint(
+                            "onboardUser",
+                            onboardRequest
+                        )) as Gemini.OnboardUserResponse;
+                        if (lroResponse.done) {
+                            break;
+                        }
+                        // Reduced polling interval for faster discovery
+                        await new Promise((resolve) =>
+                            setTimeout(resolve, 500)
+                        );
+                        retryCount++;
+                    }
+
+                    if (!lroResponse?.done) {
+                        this.logger.warn(
+                            "Project discovery timed out, continuing without project ID"
+                        );
+                        return null;
+                    }
+
+                    this.projectId =
+                        lroResponse.response?.cloudaicompanionProject?.id ??
+                        null;
                 }
 
-                this.projectId =
-                    lroResponse.response?.cloudaicompanionProject?.id ?? null;
+                // Save to persistent cache if found
+                if (this.projectId) {
+                    try {
+                        await fs.mkdir(path.dirname(cachePath), {
+                            recursive: true,
+                        });
+                        await fs.writeFile(
+                            cachePath,
+                            JSON.stringify(
+                                { projectId: this.projectId },
+                                null,
+                                2
+                            ),
+                            { mode: 0o600 }
+                        );
+                        this.logger.info(
+                            `Project ID saved to cache: ${this.projectId}`
+                        );
+                    } catch (e) {
+                        this.logger.warn(
+                            "Failed to save project ID to cache",
+                            e
+                        );
+                    }
+                }
+
                 return this.projectId;
             } catch (error: unknown) {
                 // Project ID discovery is optional - log warning but don't throw
@@ -239,7 +302,9 @@ export class GeminiApiClient {
         body: Record<string, unknown>,
         retryCount: number = 0
     ): Promise<unknown> {
-        const { token } = await this.authClient.getAccessToken();
+        const token = await TokenManager.getInstance().getAccessToken(
+            this.authClient
+        );
         const response = await fetch(
             `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${method}`,
             {
@@ -247,8 +312,11 @@ export class GeminiApiClient {
                 headers: {
                     "Content-Type": "application/json",
                     Authorization: `Bearer ${token}`,
+                    Connection: "keep-alive",
                 },
                 body: JSON.stringify(body),
+                // @ts-ignore - fetch in node supports agent
+                agent: this.httpsAgent,
             }
         );
 
@@ -507,7 +575,9 @@ export class GeminiApiClient {
         geminiCompletionRequest: Gemini.ChatCompletionRequest,
         retryCount: number = 0
     ): AsyncGenerator<OpenAI.StreamChunk> {
-        const { token } = await this.authClient.getAccessToken();
+        const token = await TokenManager.getInstance().getAccessToken(
+            this.authClient
+        );
         const response = await fetch(
             `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:streamGenerateContent?alt=sse`,
             {
@@ -515,8 +585,11 @@ export class GeminiApiClient {
                 headers: {
                     "Content-Type": "application/json",
                     Authorization: `Bearer ${token}`,
+                    Connection: "keep-alive",
                 },
                 body: JSON.stringify(geminiCompletionRequest),
+                // @ts-ignore - fetch in node supports agent
+                agent: this.httpsAgent,
             }
         );
 
@@ -528,7 +601,7 @@ export class GeminiApiClient {
                 this.logger.info(
                     "Got 401 error, forcing token refresh and retrying..."
                 );
-                this.authClient.credentials.access_token = undefined;
+                TokenManager.getInstance().clearCache();
                 yield* this.streamContentInternal(
                     geminiCompletionRequest,
                     retryCount + 1
@@ -770,7 +843,7 @@ export class GeminiApiClient {
         while (true) {
             const { done, value } = await reader.read();
             if (done) {
-                if (objectBuffer) {
+                if (objectBuffer.trim()) {
                     try {
                         yield JSON.parse(objectBuffer);
                     } catch (e) {
@@ -784,10 +857,12 @@ export class GeminiApiClient {
             }
 
             buffer += value;
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
+            let lineEndIndex: number;
 
-            for (const line of lines) {
+            while ((lineEndIndex = buffer.indexOf("\n")) !== -1) {
+                const line = buffer.slice(0, lineEndIndex);
+                buffer = buffer.slice(lineEndIndex + 1);
+
                 if (line.trim() === "") {
                     if (objectBuffer) {
                         try {
@@ -801,7 +876,7 @@ export class GeminiApiClient {
                         objectBuffer = "";
                     }
                 } else if (line.startsWith("data: ")) {
-                    objectBuffer += line.substring(6);
+                    objectBuffer += line.slice(6);
                 }
             }
         }
