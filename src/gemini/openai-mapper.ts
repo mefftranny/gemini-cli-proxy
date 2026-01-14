@@ -170,6 +170,13 @@ const mapOpenAIMessageToGeminiFormat = (
             }
         }
 
+        // Check if this message has reasoning content (thoughts)
+        const hasReasoning = Boolean(reasoningContent);
+        // Use fallback signature when reasoning is present but we don't have the actual signature
+        const thoughtSignature = hasReasoning
+            ? "skip_thought_signature_validator"
+            : undefined;
+
         if (reasoningContent) {
             parts.push({ text: reasoningContent, thought: true });
         }
@@ -180,12 +187,19 @@ const mapOpenAIMessageToGeminiFormat = (
 
         for (const toolCall of msg.tool_calls) {
             if (toolCall.type === "function") {
-                parts.push({
+                const functionCallPart: any = {
                     functionCall: {
                         name: toolCall.function.name,
                         args: JSON.parse(toolCall.function.arguments),
                     },
-                });
+                };
+
+                // Attach thought signature if reasoning is present
+                if (thoughtSignature) {
+                    functionCallPart.thoughtSignature = thoughtSignature;
+                }
+
+                parts.push(functionCallPart);
             }
         }
 
@@ -209,12 +223,35 @@ const mapOpenAIMessageToGeminiFormat = (
                 }
             }
 
-            if (reasoningContent) {
-                parts.push({ text: reasoningContent, thought: true });
-            }
-        }
+            // Check if this message has reasoning content (thoughts)
+            const hasReasoning = Boolean(reasoningContent);
+            // Use fallback signature when reasoning is present but we don't have the actual signature
+            const thoughtSignature = hasReasoning
+                ? "skip_thought_signature_validator"
+                : undefined;
 
-        parts.push({ text: content });
+            if (reasoningContent) {
+                const thoughtPart: any = {
+                    text: reasoningContent,
+                    thought: true,
+                };
+                if (thoughtSignature) {
+                    thoughtPart.thoughtSignature = thoughtSignature;
+                }
+                parts.push(thoughtPart);
+            }
+
+            if (content) {
+                const textPart: any = { text: content };
+                // Attach thought signature to the text part if no thought part exists but reasoning is present
+                if (thoughtSignature && !reasoningContent) {
+                    textPart.thoughtSignature = thoughtSignature;
+                }
+                parts.push(textPart);
+            }
+        } else {
+            parts.push({ text: content });
+        }
 
         return {
             role,

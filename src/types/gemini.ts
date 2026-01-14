@@ -57,6 +57,7 @@ export type FunctionCall = {
 
 export type FunctionCallPart = {
     functionCall: FunctionCall;
+    thoughtSignature?: string;
 };
 
 export type FunctionResponsePart = {
@@ -69,6 +70,7 @@ export type FunctionResponsePart = {
 export type TextPart = {
     text: string;
     thought?: boolean;
+    thoughtSignature?: string;
 };
 
 export type Part =
