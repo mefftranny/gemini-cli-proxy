@@ -40,7 +40,7 @@ export const mapAnthropicMessagesRequestToGemini = (
     }
 
     if (enableGoogleSearch) {
-        tools.push({ googleSearch: {} });
+        tools.push({ googleSearchRetrieval: {} });
     }
 
     if (tools.length > 0) {

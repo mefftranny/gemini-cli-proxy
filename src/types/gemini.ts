@@ -12,7 +12,6 @@ export type ChatCompletionRequestBody = {
     tools?: Array<{
         functionDeclarations?: FunctionDeclaration[];
         googleSearchRetrieval?: object;
-        googleSearch?: object;
     }>;
     toolConfig?: ToolConfig;
     generationConfig?: {
