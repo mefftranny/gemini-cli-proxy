@@ -272,7 +272,6 @@ export class GeminiApiClient {
             if (
                 (response.status === 429 ||
                     response.status === 403 ||
-                    response.status === 408 ||
                     response.status === 504) &&
                 retryCount < OAuthRotator.getInstance().getAccountCount() &&
                 OAuthRotator.getInstance().isRotationEnabled()
@@ -570,7 +569,6 @@ export class GeminiApiClient {
             if (
                 (response.status === 429 ||
                     response.status === 403 ||
-                    response.status === 408 ||
                     response.status === 504) &&
                 retryCount < OAuthRotator.getInstance().getAccountCount() &&
                 OAuthRotator.getInstance().isRotationEnabled()
