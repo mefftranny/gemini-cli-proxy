@@ -6,7 +6,8 @@ import { mapModelToGemini, mapJsonSchemaToGemini } from "./mapper.js";
 export const mapOpenAIChatCompletionRequestToGemini = (
     project: string | undefined,
     request: OpenAI.ChatCompletionRequest,
-    enableGoogleSearch: boolean = false
+    enableGoogleSearch: boolean = false,
+    lastThoughtSignature?: string // Add lastThoughtSignature parameter
 ): Gemini.ChatCompletionRequest => {
     const model = mapModelToGemini(request.model);
     const messages = request.messages ?? [];
@@ -14,7 +15,10 @@ export const mapOpenAIChatCompletionRequestToGemini = (
         (message) => !isSystemMessage(message)
     );
     const geminiRequest: Gemini.ChatCompletionRequestBody = {
-        contents: mapOpenAIMessagesToGeminiFormat(messagesWithoutSystem),
+        contents: mapOpenAIMessagesToGeminiFormat(
+            messagesWithoutSystem,
+            lastThoughtSignature
+        ), // Pass lastThoughtSignature
         generationConfig: {
             temperature: request.temperature ?? DEFAULT_TEMPERATURE,
             ...(request.max_tokens && { maxOutputTokens: request.max_tokens }),
@@ -122,7 +126,8 @@ const isSystemMessage = (message: OpenAI.ChatMessage): boolean =>
 
 const mapOpenAIMessageToGeminiFormat = (
     msg: OpenAI.ChatMessage,
-    prevMsg?: OpenAI.ChatMessage
+    prevMsg?: OpenAI.ChatMessage,
+    lastThoughtSignature?: string // Add lastThoughtSignature parameter
 ): Gemini.ChatMessage => {
     const role = msg.role === "assistant" ? "model" : "user";
 
@@ -144,6 +149,9 @@ const mapOpenAIMessageToGeminiFormat = (
                                     : JSON.stringify(msg.content),
                         },
                     },
+                    ...(lastThoughtSignature && {
+                        thoughtSignature: lastThoughtSignature,
+                    }), // Pass back the last thought signature
                 },
             ],
         };
@@ -172,13 +180,12 @@ const mapOpenAIMessageToGeminiFormat = (
 
         // Check if this message has reasoning content (thoughts)
         const hasReasoning = Boolean(reasoningContent);
-        // Use fallback signature when reasoning is present but we don't have the actual signature
-        const thoughtSignature = hasReasoning
-            ? "skip_thought_signature_validator"
-            : undefined;
 
         if (reasoningContent) {
-            parts.push({ text: reasoningContent, thought: true });
+            parts.push({
+                text: reasoningContent,
+                thought: true,
+            });
         }
 
         if (content && content.trim()) {
@@ -192,13 +199,10 @@ const mapOpenAIMessageToGeminiFormat = (
                         name: toolCall.function.name,
                         args: JSON.parse(toolCall.function.arguments),
                     },
+                    ...(lastThoughtSignature && {
+                        thoughtSignature: lastThoughtSignature,
+                    }), // Pass back the last thought signature
                 };
-
-                // Attach thought signature if reasoning is present
-                if (thoughtSignature) {
-                    functionCallPart.thoughtSignature = thoughtSignature;
-                }
-
                 parts.push(functionCallPart);
             }
         }
@@ -225,28 +229,17 @@ const mapOpenAIMessageToGeminiFormat = (
 
             // Check if this message has reasoning content (thoughts)
             const hasReasoning = Boolean(reasoningContent);
-            // Use fallback signature when reasoning is present but we don't have the actual signature
-            const thoughtSignature = hasReasoning
-                ? "skip_thought_signature_validator"
-                : undefined;
 
             if (reasoningContent) {
                 const thoughtPart: any = {
                     text: reasoningContent,
                     thought: true,
                 };
-                if (thoughtSignature) {
-                    thoughtPart.thoughtSignature = thoughtSignature;
-                }
                 parts.push(thoughtPart);
             }
 
             if (content) {
                 const textPart: any = { text: content };
-                // Attach thought signature to the text part if no thought part exists but reasoning is present
-                if (thoughtSignature && !reasoningContent) {
-                    textPart.thoughtSignature = thoughtSignature;
-                }
                 parts.push(textPart);
             }
         } else {
@@ -294,13 +287,18 @@ const mapOpenAIMessageToGeminiFormat = (
 };
 
 const mapOpenAIMessagesToGeminiFormat = (
-    messages: OpenAI.ChatMessage[]
+    messages: OpenAI.ChatMessage[],
+    lastThoughtSignature?: string // Add lastThoughtSignature parameter
 ): Gemini.ChatMessage[] => {
     const geminiMessages: Gemini.ChatMessage[] = [];
     let prevMessage: OpenAI.ChatMessage | undefined = undefined;
     for (const message of messages) {
         geminiMessages.push(
-            mapOpenAIMessageToGeminiFormat(message, prevMessage)
+            mapOpenAIMessageToGeminiFormat(
+                message,
+                prevMessage,
+                lastThoughtSignature
+            ) // Pass lastThoughtSignature
         );
         prevMessage = message;
     }

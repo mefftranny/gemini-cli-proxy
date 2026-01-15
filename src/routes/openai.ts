@@ -61,7 +61,8 @@ export function createOpenAIRouter(
                 mapOpenAIChatCompletionRequestToGemini(
                     projectId ?? undefined,
                     body,
-                    enableGoogleSearch
+                    enableGoogleSearch,
+                    geminiClient.lastThoughtSignature // Pass the last thought signature
                 );
 
             if (body.stream) {

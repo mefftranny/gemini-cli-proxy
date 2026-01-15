@@ -43,6 +43,7 @@ export class GeminiApiClient {
     private readonly chatID: string;
     private readonly autoSwitcher: AutoModelSwitchingHelper;
     private readonly logger: Logger;
+    private _lastThoughtSignature: string | undefined = undefined;
 
     constructor(
         private readonly authClient: OAuth2Client,
@@ -57,6 +58,10 @@ export class GeminiApiClient {
 
         // Eagerly start project discovery to reduce latency on the first request
         void this.discoverProjectId();
+    }
+
+    public get lastThoughtSignature(): string | undefined {
+        return this._lastThoughtSignature;
     }
 
     /**
@@ -697,6 +702,9 @@ export class GeminiApiClient {
                                 geminiCompletionRequest.model
                             );
                         }
+                        if (part.thoughtSignature) {
+                            this._lastThoughtSignature = part.thoughtSignature;
+                        }
                     } else if ("functionCall" in part) {
                         // Handle function calls from Gemini
                         toolCallId = `call_${crypto.randomUUID()}`;
@@ -726,6 +734,13 @@ export class GeminiApiClient {
                             delta,
                             geminiCompletionRequest.model
                         );
+                        if (part.thoughtSignature) {
+                            this._lastThoughtSignature = part.thoughtSignature;
+                        }
+                    } else if ("functionResponse" in part) {
+                        if (part.thoughtSignature) {
+                            this._lastThoughtSignature = part.thoughtSignature;
+                        }
                     }
                 }
             }

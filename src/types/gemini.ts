@@ -65,6 +65,7 @@ export type FunctionResponsePart = {
         name: string;
         response: object;
     };
+    thoughtSignature?: string;
 };
 
 export type TextPart = {
