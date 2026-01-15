@@ -1,4 +1,5 @@
 import { OAuth2Client, Credentials } from "google-auth-library";
+import { Agent } from "undici";
 import * as OpenAI from "../types/openai.js";
 import * as Gemini from "../types/gemini.js";
 import {
@@ -36,6 +37,11 @@ export class GeminiApiError extends Error {
  * Handles communication with Google's Gemini API through the Code Assist endpoint.
  */
 export class GeminiApiClient {
+    private static readonly dispatcher = new Agent({
+        headersTimeout: 300000, // 5 minutes
+        bodyTimeout: REQUEST_TIMEOUT_MS,
+    });
+
     private projectId: string | null = null;
     private projectIdPromise: Promise<string | null> | null = null;
     private firstChunk: boolean = true;
@@ -258,6 +264,8 @@ export class GeminiApiClient {
                     },
                     body: JSON.stringify(body),
                     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+                    // @ts-ignore - dispatcher is supported in Node.js fetch
+                    dispatcher: GeminiApiClient.dispatcher,
                 }
             );
         } catch (error: any) {
@@ -542,6 +550,8 @@ export class GeminiApiClient {
                     },
                     body: JSON.stringify(geminiCompletionRequest),
                     signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+                    // @ts-ignore - dispatcher is supported in Node.js fetch
+                    dispatcher: GeminiApiClient.dispatcher,
                 }
             );
         } catch (error: any) {

@@ -15,7 +15,6 @@
         "test": "vitest run",
         "test:cov": "vitest run --coverage",
         "deploy": "git pull origin main && yarn install && yarn build && pm2 restart gemini-proxy"
-
     },
     "engines": {
         "node": ">20.0.0"
@@ -29,7 +28,8 @@
         "commander": "^14.0.0",
         "express": "^5.1.0",
         "google-auth-library": "^10.2.1",
-        "open": "^10.2.0"
+        "open": "^10.2.0",
+        "undici": "^7.18.2"
     },
     "devDependencies": {
         "@eslint/js": "^9.33.0",
