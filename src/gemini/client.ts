@@ -114,6 +114,10 @@ export class GeminiApiClient {
         return this._lastThoughtSignature;
     }
 
+    public set lastThoughtSignature(value: string | undefined) {
+        this._lastThoughtSignature = value;
+    }
+
     /**
      * Reload credentials from disk after OAuth rotation
      * Always triggers token refresh to ensure valid access token
@@ -441,6 +445,7 @@ export class GeminiApiClient {
             outputTokens: number;
         };
         _autoSwitchNotification?: string;
+        _lastThoughtSignature?: string;
     }> {
         try {
             const chunks: OpenAI.StreamChunk[] = [];
@@ -482,6 +487,7 @@ export class GeminiApiClient {
                 reasoning: reasoning || undefined,
                 tool_calls: tool_calls.length > 0 ? tool_calls : undefined,
                 usage,
+                _lastThoughtSignature: this._lastThoughtSignature,
             };
         } catch (error) {
             if (
@@ -503,10 +509,15 @@ export class GeminiApiClient {
                             ...data,
                             model,
                         } as Gemini.ChatCompletionRequest;
-                        return await this.getCompletion(
+                        const result = (await this.getCompletion(
                             updatedRequest,
                             retryCount,
-                        );
+                        )) as any;
+                        if (result && typeof result === "object") {
+                            this._lastThoughtSignature =
+                                result._lastThoughtSignature;
+                        }
+                        return result;
                     },
                 )) as Promise<{
                     content: string;
@@ -516,6 +527,7 @@ export class GeminiApiClient {
                         outputTokens: number;
                     };
                     _autoSwitchNotification?: string;
+                    _lastThoughtSignature?: string;
                 }>;
             }
             throw error;
@@ -565,6 +577,8 @@ export class GeminiApiClient {
                             self.googleCloudProject,
                             self.disableAutoModelSwitch,
                         );
+                        fallbackClient.lastThoughtSignature =
+                            self.lastThoughtSignature;
                         yield* fallbackClient.streamContent(
                             updatedRequest,
                             retryCount,
@@ -735,8 +749,20 @@ export class GeminiApiClient {
             const candidate = jsonData.response?.candidates?.[0];
 
             if (candidate?.content?.parts) {
-                for (const part of candidate.content.parts as Gemini.Part[]) {
-                    if ("text" in part) {
+                for (const part of candidate.content.parts as any[]) {
+                    if ("thought" in part && typeof part.thought === "string") {
+                        const delta: OpenAI.StreamDelta = {
+                            reasoning: part.thought,
+                        };
+                        if (this.firstChunk) {
+                            delta.role = "assistant";
+                            this.firstChunk = false;
+                        }
+                        yield this.createOpenAIChunk(
+                            delta,
+                            geminiCompletionRequest.model,
+                        );
+                    } else if ("text" in part) {
                         // Handle text content
                         if (part.thought === true) {
                             const delta: OpenAI.StreamDelta = {

@@ -7,17 +7,17 @@ export const mapOpenAIChatCompletionRequestToGemini = (
     project: string | undefined,
     request: OpenAI.ChatCompletionRequest,
     enableGoogleSearch: boolean = false,
-    lastThoughtSignature?: string // Add lastThoughtSignature parameter
+    lastThoughtSignature?: string, // Add lastThoughtSignature parameter
 ): Gemini.ChatCompletionRequest => {
     const model = mapModelToGemini(request.model);
     const messages = request.messages ?? [];
     const messagesWithoutSystem = messages.filter(
-        (message) => !isSystemMessage(message)
+        (message) => !isSystemMessage(message),
     );
     const geminiRequest: Gemini.ChatCompletionRequestBody = {
         contents: mapOpenAIMessagesToGeminiFormat(
             messagesWithoutSystem,
-            lastThoughtSignature
+            lastThoughtSignature,
         ), // Pass lastThoughtSignature
         generationConfig: {
             temperature: request.temperature ?? DEFAULT_TEMPERATURE,
@@ -33,7 +33,7 @@ export const mapOpenAIChatCompletionRequestToGemini = (
     if (request.tools) {
         tools.push({
             functionDeclarations: request.tools?.map((tool) =>
-                convertOpenAIFunctionToGemini(tool.function)
+                convertOpenAIFunctionToGemini(tool.function),
             ),
         });
     }
@@ -47,7 +47,7 @@ export const mapOpenAIChatCompletionRequestToGemini = (
     }
     if (request.tool_choice) {
         geminiRequest.toolConfig = mapToolChoiceToToolConfig(
-            request.tool_choice
+            request.tool_choice,
         );
     }
     const reasoningEffort =
@@ -67,7 +67,7 @@ export const mapOpenAIChatCompletionRequestToGemini = (
 };
 
 const mapSystemInstruction = (
-    messages: OpenAI.ChatMessage[]
+    messages: OpenAI.ChatMessage[],
 ): Gemini.SystemInstruction | undefined => {
     const systemMessage = messages.find(isSystemMessage);
     if (!systemMessage) {
@@ -101,7 +101,7 @@ const mapSystemInstruction = (
 };
 
 const mapToolChoiceToToolConfig = (
-    toolChoice?: OpenAI.ToolChoice
+    toolChoice?: OpenAI.ToolChoice,
 ): Gemini.ToolConfig | undefined => {
     if (!toolChoice) {
         return;
@@ -127,13 +127,13 @@ const isSystemMessage = (message: OpenAI.ChatMessage): boolean =>
 const mapOpenAIMessageToGeminiFormat = (
     msg: OpenAI.ChatMessage,
     prevMsg?: OpenAI.ChatMessage,
-    lastThoughtSignature?: string // Add lastThoughtSignature parameter
+    lastThoughtSignature?: string, // Add lastThoughtSignature parameter
 ): Gemini.ChatMessage => {
     const role = msg.role === "assistant" ? "model" : "user";
 
     if (msg.role === "tool") {
         const originalToolCall = prevMsg?.tool_calls?.find(
-            (tc: OpenAI.ToolCall) => tc.id === msg.tool_call_id
+            (tc: OpenAI.ToolCall) => tc.id === msg.tool_call_id,
         );
 
         return {
@@ -183,9 +183,8 @@ const mapOpenAIMessageToGeminiFormat = (
 
         if (reasoningContent) {
             parts.push({
-                text: reasoningContent,
-                thought: true,
-            });
+                thought: reasoningContent,
+            } as Gemini.ThoughtPart);
         }
 
         if (content && content.trim()) {
@@ -194,7 +193,7 @@ const mapOpenAIMessageToGeminiFormat = (
 
         for (const toolCall of msg.tool_calls) {
             if (toolCall.type === "function") {
-                const functionCallPart: any = {
+                const functionCallPart: Gemini.FunctionCallPart = {
                     functionCall: {
                         name: toolCall.function.name,
                         args: JSON.parse(toolCall.function.arguments),
@@ -231,15 +230,14 @@ const mapOpenAIMessageToGeminiFormat = (
             const hasReasoning = Boolean(reasoningContent);
 
             if (reasoningContent) {
-                const thoughtPart: any = {
-                    text: reasoningContent,
-                    thought: true,
+                const thoughtPart: Gemini.ThoughtPart = {
+                    thought: reasoningContent,
                 };
                 parts.push(thoughtPart);
             }
 
             if (content) {
-                const textPart: any = { text: content };
+                const textPart: Gemini.TextPart = { text: content };
                 parts.push(textPart);
             }
         } else {
@@ -288,7 +286,7 @@ const mapOpenAIMessageToGeminiFormat = (
 
 const mapOpenAIMessagesToGeminiFormat = (
     messages: OpenAI.ChatMessage[],
-    lastThoughtSignature?: string // Add lastThoughtSignature parameter
+    lastThoughtSignature?: string, // Add lastThoughtSignature parameter
 ): Gemini.ChatMessage[] => {
     const geminiMessages: Gemini.ChatMessage[] = [];
     let prevMessage: OpenAI.ChatMessage | undefined = undefined;
@@ -297,8 +295,8 @@ const mapOpenAIMessagesToGeminiFormat = (
             mapOpenAIMessageToGeminiFormat(
                 message,
                 prevMessage,
-                lastThoughtSignature
-            ) // Pass lastThoughtSignature
+                lastThoughtSignature,
+            ), // Pass lastThoughtSignature
         );
         prevMessage = message;
     }
@@ -306,7 +304,7 @@ const mapOpenAIMessagesToGeminiFormat = (
 };
 
 const getThinkingConfig = (
-    reasoningEffort?: string
+    reasoningEffort?: string,
 ): Gemini.ThinkingConfig | undefined => {
     if (!reasoningEffort) {
         return;
@@ -331,7 +329,7 @@ const thinkingBudgetMap: Record<OpenAI.ReasoningEffort, number> = {
 };
 
 const convertOpenAIFunctionToGemini = (
-    fn: OpenAI.FunctionDeclaration
+    fn: OpenAI.FunctionDeclaration,
 ): Gemini.FunctionDeclaration => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { parameters, strict, ...rest } = fn as any;
