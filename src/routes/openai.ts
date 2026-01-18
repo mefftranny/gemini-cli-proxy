@@ -138,8 +138,11 @@ export function createOpenAIRouter(
                                     tool_calls: completion.tool_calls,
                                 },
                                 finish_reason:
-                                    completion.tool_calls &&
-                                    completion.tool_calls.length > 0
+                                    (completion.tool_calls &&
+                                        completion.tool_calls.length > 0) ||
+                                    (completion.tool_calls &&
+                                        completion.tool_calls.length > 0 &&
+                                        geminiClient.lastThoughtSignature)
                                         ? "tool_calls"
                                         : "stop",
                             },

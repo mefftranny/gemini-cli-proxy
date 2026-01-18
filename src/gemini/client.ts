@@ -821,7 +821,18 @@ export class GeminiApiClient {
         }
 
         // Send final chunk with usage data
-        const finishReason = toolCallId ? "tool_calls" : "stop";
+        // Fix for Gemini 3 thoughtSignature: when there are tool calls with encrypted
+        // reasoning (thoughtSignature), the model returns 'stop' but expects continuation.
+        // Override to 'tool-calls' so the SDK knows to continue the conversation.
+        let finishReason = toolCallId ? "tool_calls" : "stop";
+        if (
+            toolCallId &&
+            this._lastThoughtSignature &&
+            finishReason === "stop"
+        ) {
+            finishReason = "tool_calls";
+        }
+
         const finalChunk = this.createOpenAIChunk(
             {},
             geminiCompletionRequest.model,
