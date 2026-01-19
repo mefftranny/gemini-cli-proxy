@@ -22,6 +22,8 @@ export class OAuthRotator {
     private lastResetTime: number = Date.now();
     private resetTimezoneOffset: number = -8; // Pacific Time (GMT-8) by default
     private resetHour: number = 0; // Midnight by default
+    private blacklistedAccounts: Map<string, number> = new Map();
+    private static readonly BLACKLIST_DURATION_MS = 1000 * 60 * 30; // 30 minutes
 
     /**
      * Singleton pattern - get the global instance
@@ -42,8 +44,7 @@ export class OAuthRotator {
         this.resetTimezoneOffset = timezoneOffset;
         this.resetHour = hour;
         this.logger.info(
-            `Time-based reset configured: GMT${
-                timezoneOffset >= 0 ? "+" : ""
+            `Time-based reset configured: GMT${timezoneOffset >= 0 ? "+" : ""
             }${timezoneOffset} at ${hour}:00`
         );
     }
@@ -342,10 +343,8 @@ export class OAuthRotator {
             this.lastResetTime = Date.now();
             this.allAccountsExhausted = false;
             this.logger.info(
-                `Time-based reset: Index reset to 0 at ${
-                    this.resetHour
-                }:00 GMT${this.resetTimezoneOffset >= 0 ? "+" : ""}${
-                    this.resetTimezoneOffset
+                `Time-based reset: Index reset to 0 at ${this.resetHour
+                }:00 GMT${this.resetTimezoneOffset >= 0 ? "+" : ""}${this.resetTimezoneOffset
                 }`
             );
             return true;
@@ -422,7 +421,6 @@ export class OAuthRotator {
         // Move to next account in round-robin fashion
         this.currentIndex =
             (this.currentIndex + 1) % this.credentialFilePaths.length;
-        const newCredentialPath = this.credentialFilePaths[this.currentIndex];
 
         // Mark as exhausted if we've cycled through all accounts
         if (this.currentIndex === 0) {
@@ -431,6 +429,48 @@ export class OAuthRotator {
                 "All OAuth accounts have been exhausted. Rotation will continue cycling through all accounts."
             );
         }
+
+        // Cycle through accounts to find a non-blacklisted one
+        // We limit the search to the number of available accounts to prevent infinite loops
+        // if all accounts are blacklisted
+        let attempts = 0;
+        const totalAccounts = this.credentialFilePaths.length;
+
+        while (attempts < totalAccounts) {
+            const candidatePath = this.credentialFilePaths[this.currentIndex];
+
+            if (this.isBlacklisted(candidatePath)) {
+                this.logger.info(
+                    `Skipping blacklisted account: ${path.basename(candidatePath)}`
+                );
+                // Move to next
+                this.currentIndex = (this.currentIndex + 1) % totalAccounts;
+                attempts++;
+
+                // If we wrapped around to 0, mark exhausted
+                if (this.currentIndex === 0) {
+                    this.allAccountsExhausted = true;
+                }
+                continue;
+            }
+
+            // Found a non-blacklisted account
+            break;
+        }
+
+        // If we tried all accounts and they are all blacklisted, we'll just use the current one
+        // (effectively ignoring blacklist to avoid total service outage)
+        if (attempts >= totalAccounts) {
+            this.logger.warn(
+                "All accounts are blacklisted! Forced to use a blacklisted account."
+            );
+            // We kept incrementing currentIndex, so it should be back to where we started (or next available)
+            // But let's just proceed with whatever currentIndex is now
+        }
+
+        const newCredentialPath = this.credentialFilePaths[this.currentIndex];
+
+        // Validate the file...
 
         try {
             // Validate the credential file before using it
@@ -469,8 +509,7 @@ export class OAuthRotator {
 
             const filename = path.basename(newCredentialPath);
             this.logger.info(
-                `OAuth switch: ${filename} (account ${
-                    this.currentIndex + 1
+                `OAuth switch: ${filename} (account ${this.currentIndex + 1
                 } of ${this.credentialFilePaths.length})`
             );
 
@@ -533,5 +572,33 @@ export class OAuthRotator {
      */
     public dispose(): void {
         this.stopFolderWatcher();
+    }
+
+    /**
+     * temporarily blacklist an account
+     * @param filePath Path to the account file
+     * @param durationMs Duration in ms (default: 1 hour)
+     */
+    public blacklistAccount(filePath: string, durationMs: number = OAuthRotator.BLACKLIST_DURATION_MS): void {
+        const expiresAt = Date.now() + durationMs;
+        this.blacklistedAccounts.set(filePath, expiresAt);
+        this.logger.warn(
+            `Blacklisted account ${path.basename(filePath)} for ${Math.round(durationMs / 60000)} minutes`
+        );
+    }
+
+    /**
+     * Check if an account is blacklisted
+     */
+    public isBlacklisted(filePath: string): boolean {
+        const expiresAt = this.blacklistedAccounts.get(filePath);
+        if (!expiresAt) return false;
+
+        if (Date.now() > expiresAt) {
+            this.blacklistedAccounts.delete(filePath);
+            return false;
+        }
+
+        return true;
     }
 }

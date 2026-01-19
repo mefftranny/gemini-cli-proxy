@@ -182,12 +182,12 @@ export class GeminiApiClient {
                         );
                         this.logger.info(
                             "Refreshed credentials written back to source: " +
-                                sourceFilePath,
+                            sourceFilePath,
                         );
                     } catch (sourceError) {
                         this.logger.warn(
                             "Failed to write refreshed credentials to source file: " +
-                                sourceFilePath,
+                            sourceFilePath,
                             sourceError,
                         );
                         // Continue anyway - cache is updated
@@ -297,6 +297,8 @@ export class GeminiApiClient {
     ): Promise<unknown> {
         const { token } = await this.authClient.getAccessToken();
         let response: Response;
+
+
         try {
             response = await fetch(
                 `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:${method}`,
@@ -349,6 +351,11 @@ export class GeminiApiClient {
                     `Attempting OAuth rotation due to ${response.status}...`,
                 );
 
+                // Blacklist the account if it's a 403 error
+                if (response.status === 403 && currentAccount) {
+                    OAuthRotator.getInstance().blacklistAccount(currentAccount);
+                }
+
                 try {
                     // Rotate to next account
                     const rotatedPath =
@@ -365,8 +372,7 @@ export class GeminiApiClient {
                         // Re-discover project ID for the new OAuth account
                         const newProjectId = await this.discoverProjectId();
                         this.logger.info(
-                            `Project ID re-discovered after rotation: ${
-                                newProjectId ?? "none"
+                            `Project ID re-discovered after rotation: ${newProjectId ?? "none"
                             }`,
                         );
 
@@ -587,6 +593,7 @@ export class GeminiApiClient {
     ): AsyncGenerator<OpenAI.StreamChunk> {
         const { token } = await this.authClient.getAccessToken();
         let response: Response;
+
         try {
             response = await fetch(
                 `${CODE_ASSIST_ENDPOINT}/${CODE_ASSIST_API_VERSION}:streamGenerateContent?alt=sse`,
@@ -652,6 +659,11 @@ export class GeminiApiClient {
                     `Attempting OAuth rotation in stream due to ${response.status}...`,
                 );
 
+                // Blacklist the account if it's a 403 error
+                if (response.status === 403 && currentAccount) {
+                    OAuthRotator.getInstance().blacklistAccount(currentAccount);
+                }
+
                 try {
                     // Rotate to next account
                     const rotatedPath =
@@ -668,8 +680,7 @@ export class GeminiApiClient {
                         // Re-discover project ID for the new OAuth account
                         const newProjectId = await this.discoverProjectId();
                         this.logger.info(
-                            `Project ID re-discovered after rotation: ${
-                                newProjectId ?? "none"
+                            `Project ID re-discovered after rotation: ${newProjectId ?? "none"
                             }`,
                         );
 
