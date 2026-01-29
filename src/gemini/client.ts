@@ -225,7 +225,27 @@ export class GeminiApiClient {
 
         this.projectIdPromise = (async () => {
             try {
-                const initialProjectId = "default-project";
+                // First attempt: Try to load without specifying a project
+                // This allows the API to return the user's configured project or default context
+                try {
+                    const loadResponseNoProj = (await this.callEndpoint(
+                        "loadCodeAssist",
+                        {}, // Empty body to let API decide
+                    )) as Gemini.ProjectDiscoveryResponse;
+
+                    if (loadResponseNoProj.cloudaicompanionProject) {
+                        this.projectId = loadResponseNoProj.cloudaicompanionProject;
+                        if (this.projectId === "default-project") {
+                             this.projectId = null;
+                        }
+                        return this.projectId;
+                    }
+                } catch (e) {
+                    // Ignore error and fall back to explicit default-project
+                    this.logger.info("loadCodeAssist without project failed, falling back to default-project");
+                }
+
+                const initialProjectId = "gen-lang-client-0890734987";
                 const loadResponse = (await this.callEndpoint(
                     "loadCodeAssist",
                     {
@@ -236,6 +256,10 @@ export class GeminiApiClient {
 
                 if (loadResponse.cloudaicompanionProject) {
                     this.projectId = loadResponse.cloudaicompanionProject;
+                    // If the discovered project is "default-project", treat it as null
+                    if (this.projectId === "default-project") {
+                        this.projectId = null;
+                    }
                     return this.projectId;
                 }
 
@@ -274,6 +298,12 @@ export class GeminiApiClient {
 
                 this.projectId =
                     lroResponse.response?.cloudaicompanionProject?.id ?? null;
+                
+                // If the discovered project is "default-project", treat it as null
+                if (this.projectId === "default-project") {
+                    this.projectId = null;
+                }
+                
                 return this.projectId;
             } catch (error: unknown) {
                 // Project ID discovery is optional - log warning but don't throw
@@ -741,6 +771,7 @@ export class GeminiApiClient {
         let toolCallId: string | undefined = undefined;
         let usageData: OpenAI.UsageData | undefined;
         let reasoningTokens = 0;
+        let toolCallIndex = 0; // Track tool call index across chunks
 
         for await (const jsonData of this.parseSSEStream(response.body)) {
             const candidate = jsonData.response?.candidates?.[0];
@@ -780,18 +811,32 @@ export class GeminiApiClient {
                         }
                     } else if ("functionCall" in part) {
                         // Handle function calls from Gemini
+                        // Generate a new ID for each unique function call
                         toolCallId = `call_${crypto.randomUUID()}`;
+                        
+                        let args = part.functionCall.args;
+                        const name = part.functionCall.name;
+
+                        // FIX: Gemini sometimes calls 'shell' with ["cmd args"] instead of ["sh", "-c", "cmd args"]
+                        // This causes "OS Error 2" because the system tries to find an executable named "cmd args"
+                        if (name === "shell" && args && typeof args === 'object' && 'command' in args && Array.isArray(args.command)) {
+                            const cmds = args.command as string[];
+                            if (cmds.length === 1 && typeof cmds[0] === 'string' && cmds[0].trim().includes(" ")) {
+                                // Heuristic: if it looks like a shell command in a single string, wrap it in sh -c
+                                // We use /bin/sh for maximum compatibility on Linux/macOS
+                                args = { ...args, command: ["/bin/sh", "-c", cmds[0]] };
+                            }
+                        }
+
                         const delta: OpenAI.StreamDelta = {
                             tool_calls: [
                                 {
-                                    index: 0,
+                                    index: toolCallIndex,
                                     id: toolCallId,
                                     type: "function",
                                     function: {
-                                        name: part.functionCall.name,
-                                        arguments: JSON.stringify(
-                                            part.functionCall.args,
-                                        ),
+                                        name: name,
+                                        arguments: JSON.stringify(args),
                                     },
                                 },
                             ],
@@ -807,6 +852,10 @@ export class GeminiApiClient {
                             delta,
                             geminiCompletionRequest.model,
                         );
+                        
+                        // Increment index for the next tool call
+                        toolCallIndex++;
+                        
                         if (part.thoughtSignature) {
                             this._lastThoughtSignature = part.thoughtSignature;
                         }
@@ -888,6 +937,48 @@ export class GeminiApiClient {
     }
 
     /**
+     * Tries to recover multiple JSON objects from a concatenated string.
+     * This handles cases where the SSE stream might have missed a separator
+     * or merged multiple data chunks.
+     */
+    private tryRecoverMultipleJson(input: string): Gemini.Response[] {
+        const results: Gemini.Response[] = [];
+        let remaining = input.trim();
+
+        while (remaining.length > 0) {
+            // fast fail if not starting with {
+            if (remaining[0] !== "{") break;
+
+            let balance = 0;
+            let splitIndex = -1;
+
+            for (let i = 0; i < remaining.length; i++) {
+                if (remaining[i] === "{") balance++;
+                else if (remaining[i] === "}") balance--;
+
+                if (balance === 0) {
+                    splitIndex = i + 1;
+                    break;
+                }
+            }
+
+            if (splitIndex !== -1) {
+                try {
+                    const chunk = remaining.substring(0, splitIndex);
+                    results.push(JSON.parse(chunk));
+                    remaining = remaining.substring(splitIndex).trim();
+                } catch {
+                    break;
+                }
+            } else {
+                break;
+            }
+        }
+
+        return results;
+    }
+
+    /**
      * Parses a server-sent event (SSE) stream from the Gemini API.
      */
     private async *parseSSEStream(
@@ -904,10 +995,17 @@ export class GeminiApiClient {
                     try {
                         yield JSON.parse(objectBuffer);
                     } catch (e) {
-                        this.logger.error(
-                            "Error parsing final SSE JSON object",
-                            e,
-                        );
+                        // Attempt recovery for concatenated JSON
+                        const recovered =
+                            this.tryRecoverMultipleJson(objectBuffer);
+                        if (recovered.length > 0) {
+                            for (const obj of recovered) yield obj;
+                        } else {
+                            this.logger.error(
+                                "Error parsing final SSE JSON object",
+                                e,
+                            );
+                        }
                     }
                 }
                 break;
@@ -923,10 +1021,17 @@ export class GeminiApiClient {
                         try {
                             yield JSON.parse(objectBuffer);
                         } catch (e) {
-                            this.logger.error(
-                                "Error parsing SSE JSON object",
-                                e,
-                            );
+                            // Attempt recovery for concatenated JSON
+                            const recovered =
+                                this.tryRecoverMultipleJson(objectBuffer);
+                            if (recovered.length > 0) {
+                                for (const obj of recovered) yield obj;
+                            } else {
+                                this.logger.error(
+                                    "Error parsing SSE JSON object",
+                                    e,
+                                );
+                            }
                         }
                         objectBuffer = "";
                     }

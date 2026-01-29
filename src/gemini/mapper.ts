@@ -162,8 +162,9 @@ const convertJsonSchemaObject = (schema: JsonSchema): JsonSchema => {
         ) {
             result.items = convertJsonSchemaObject(value as JsonSchema);
         } else if (key === "additionalProperties") {
-            // Keep additionalProperties as is
-            result.additionalProperties = value as boolean | JsonSchema;
+            // additionalProperties is not supported in Gemini function declarations
+            // See: https://cloud.google.com/vertex-ai/docs/reference/rest/v1beta1/Tool
+            continue;
         } else if (key === "allOf") {
             // allOf should have been resolved already, but handle just in case
             if (Array.isArray(value)) {

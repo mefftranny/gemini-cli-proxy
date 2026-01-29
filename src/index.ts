@@ -199,6 +199,9 @@ export async function startServer() {
                 `Anthropic compatible endpoint (Gemini CLI): http://localhost:${opts.port}/anthropic`,
             );
             logger.info("press Ctrl+C to stop the server");
+            
+            // Keep process alive
+            setInterval(() => {}, 10000);
         });
 
         // Handle graceful shutdown

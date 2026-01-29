@@ -194,10 +194,30 @@ const mapOpenAIMessageToGeminiFormat = (
 
         for (const toolCall of msg.tool_calls) {
             if (toolCall.type === "function") {
+                let args: object = {};
+                try {
+                    args = JSON.parse(toolCall.function.arguments);
+                } catch (e) {
+                    // Try to recover JSON from the string (e.g. handling </environment_context> suffix)
+                    const argStr = toolCall.function.arguments;
+                    const firstOpen = argStr.indexOf("{");
+                    const lastClose = argStr.lastIndexOf("}");
+                    if (firstOpen !== -1 && lastClose !== -1 && lastClose > firstOpen) {
+                        try {
+                            args = JSON.parse(argStr.substring(firstOpen, lastClose + 1));
+                        } catch (e2) {
+                            // If recovery fails, fallback to wrapping as raw content
+                            args = { _raw_args: argStr };
+                        }
+                    } else {
+                        args = { _raw_args: argStr };
+                    }
+                }
+
                 const functionCallPart: any = {
                     functionCall: {
                         name: toolCall.function.name,
-                        args: JSON.parse(toolCall.function.arguments),
+                        args: args,
                     },
                     ...(lastThoughtSignature && {
                         thoughtSignature: lastThoughtSignature,
