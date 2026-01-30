@@ -231,7 +231,11 @@ export function createOpenAIRouter(
                     },
                 });
             } else {
-                res.end();
+                // If headers were already sent (streaming), we must destroy the connection
+                // to signal an error to the client. Calling res.end() would look like
+                // a successful stream completion (EOF).
+                logger.error("Destroying response connection due to error during stream");
+                res.destroy(error instanceof Error ? error : new Error(errorMessage));
             }
         }
     });
