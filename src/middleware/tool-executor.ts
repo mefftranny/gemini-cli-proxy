@@ -59,3 +59,12 @@ export const executeOmegaTool = async (
                     });
                 });
             }
+            
+            default:
+                return { success: false, result: null, error: `Unknown tool: ${toolName}` };
+        }
+    } catch (error: any) {
+        console.error(`[OMEGA EXECUTOR] Fatal error:`, error);
+        return { success: false, result: null, error: error.message || String(error) };
+    }
+};
