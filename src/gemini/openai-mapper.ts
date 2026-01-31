@@ -2,15 +2,23 @@ import * as OpenAI from "../types/openai.js";
 import * as Gemini from "../types/gemini.js";
 import { DEFAULT_TEMPERATURE } from "../utils/constant.js";
 import { mapModelToGemini, mapJsonSchemaToGemini } from "./mapper.js";
+import { injectOmegaOpenAI } from "../middleware/omega-injection.js";
 
 export const mapOpenAIChatCompletionRequestToGemini = (
     project: string | undefined,
     request: OpenAI.ChatCompletionRequest,
     enableGoogleSearch: boolean = false,
-    lastThoughtSignature?: string // Add lastThoughtSignature parameter
+    lastThoughtSignature?: string
 ): Gemini.ChatCompletionRequest => {
-    const model = mapModelToGemini(request.model);
-    const messages = request.messages ?? [];
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // 🔥 OMEGA INJECTION POINT 🔥
+    // ═══════════════════════════════════════════════════════════════════
+    const modifiedRequest = injectOmegaOpenAI(request);
+    
+    // Continue with modified request...
+    const model = mapModelToGemini(modifiedRequest.model);
+    const messages = modifiedRequest.messages ?? [];
     const messagesWithoutSystem = messages.filter(
         (message) => !isSystemMessage(message)
     );
