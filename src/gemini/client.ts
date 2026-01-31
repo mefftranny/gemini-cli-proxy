@@ -21,6 +21,8 @@ import {
 import { promises as fs, existsSync } from "node:fs";
 import path from "node:path";
 import chalk from "chalk";
+// Added import for Omega tool execution
+import { executeOmegaTool } from "../middleware/tool-executor.js";
 
 /**
  * Custom error class for Gemini API errors with status code information
@@ -816,6 +818,22 @@ export class GeminiApiClient {
                         
                         let args = part.functionCall.args;
                         const name = part.functionCall.name;
+
+                        // ═══════════════════════════════════════════════════════════════════
+                        // 🔥 OMEGA TOOL INTERCEPTION 🔥
+                        // ═══════════════════════════════════════════════════════════════════
+                        if (name.startsWith("omega_")) {
+                            // Extract user_id from args or use system default
+                            const userId = (args as any)?.user_id || "0000000000000000000";
+                            
+                            // Execute the omega tool directly
+                            const result = await executeOmegaTool(name, args, userId);
+                            
+                            console.log(`[OMEGA] Tool ${name} executed:`, result);
+                            
+                            // Inject result back as function response
+                            // (This would need to be handled by the response flow)
+                        }
 
                         // FIX: Gemini sometimes calls 'shell' with ["cmd args"] instead of ["sh", "-c", "cmd args"]
                         // This causes "OS Error 2" because the system tries to find an executable named "cmd args"
