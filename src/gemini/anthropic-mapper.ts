@@ -2,13 +2,21 @@ import * as Anthropic from "../types/anthropic.js";
 import * as Gemini from "../types/gemini.js";
 import { DEFAULT_TEMPERATURE } from "../utils/constant.js";
 import { mapModelToGemini, mapJsonSchemaToGemini } from "./mapper.js";
+import { injectOmegaAnthropic } from "../middleware/omega-injection.js";
 
 export const mapAnthropicMessagesRequestToGemini = (
     project: string | undefined,
     request: Anthropic.MessagesRequest,
     enableGoogleSearch: boolean = false
 ): Gemini.ChatCompletionRequest => {
-    const model = mapModelToGemini(request.model);
+    
+    // ═══════════════════════════════════════════════════════════════════
+    // 🔥 OMEGA INJECTION POINT 🔥
+    // ═══════════════════════════════════════════════════════════════════
+    const modifiedRequest = injectOmegaAnthropic(request);
+    
+    // Continue with modified request...
+    const model = mapModelToGemini(modifiedRequest.model);
 
     const geminiRequest: Gemini.ChatCompletionRequestBody = {
         contents: mapAnthropicMessagesToGeminiFormat(request.messages),
