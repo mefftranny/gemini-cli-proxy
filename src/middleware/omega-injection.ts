@@ -101,3 +101,6 @@ export const injectOmegaAnthropic = (
         ...(request.tools || []),
         ...anthropicTools
     ];
+
+    return modified;
+};
