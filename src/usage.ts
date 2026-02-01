@@ -3,7 +3,6 @@
 // How to wire the toggle system into your proxy
 // ═══════════════════════════════════════════════════════════════════
 
-import express from 'express';
 import { 
   omegaMiddleware, 
   handleOmegaMessage,
@@ -12,11 +11,27 @@ import {
   executeOmegaCommand,
   getChannelState,
   buildOmegaFooter
-} from './index';
+} from '../index.js';
+
+// ═══════════════════════════════════════════════════════════════════
+// TYPE DEFINITIONS (for examples)
+// ═══════════════════════════════════════════════════════════════════
+
+interface AIRequestParams {
+  systemPrompt: string;
+  message: string;
+  metadata?: {
+    identity?: string;
+    pronouns?: string;
+  };
+}
 
 // ═══════════════════════════════════════════════════════════════════
 // EXAMPLE 1: Express Middleware Integration
 // ═══════════════════════════════════════════════════════════════════
+
+/*
+import express from 'express';
 
 const app = express();
 app.use(express.json());
@@ -57,6 +72,7 @@ app.post('/api/chat', async (req, res) => {
   
   return res.json(response);
 });
+*/
 
 // ═══════════════════════════════════════════════════════════════════
 // EXAMPLE 2: Manual Command Processing
@@ -66,7 +82,13 @@ async function processUserMessage(
   content: string,
   channelId: string,
   userId: string
-) {
+): Promise<{
+  type: string;
+  message?: string;
+  success?: boolean;
+  systemPromptAddition?: string | null;
+  togglesActive?: string[];
+}> {
   // Check for omega command
   const cmd = parseOmegaCommand(content);
   
@@ -107,8 +129,15 @@ async function processUserMessage(
 // EXAMPLE 3: Discord Bot Integration
 // ═══════════════════════════════════════════════════════════════════
 
+interface MockDiscordMessage {
+  content: string;
+  channel: { id: string };
+  author: { id: string; username: string; bot: boolean };
+  reply: (content: string) => Promise<void>;
+}
+
 // Assuming you have a Discord.js client
-async function onDiscordMessage(message: any) {
+async function onDiscordMessage(message: MockDiscordMessage): Promise<void> {
   // Skip bot messages
   if (message.author.bot) return;
   
@@ -144,17 +173,24 @@ async function onDiscordMessage(message: any) {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// EXAMPLE 4: WebSocket Real-time Integration
+// EXAMPLE 4: WebSocket Real-time Integration (Type-safe version)
 // ═══════════════════════════════════════════════════════════════════
 
-import { WebSocket } from 'ws';
+interface WebSocketLike {
+  send: (data: string) => void;
+}
+
+interface WSMessageData {
+  type: string;
+  content: string;
+}
 
 function handleWebSocketMessage(
-  ws: WebSocket,
-  data: any,
+  ws: WebSocketLike,
+  data: WSMessageData,
   channelId: string,
   userId: string
-) {
+): void {
   const { type, content } = data;
   
   if (type === 'chat') {
@@ -164,7 +200,7 @@ function handleWebSocketMessage(
       userId,
       isProxyUser: true,
       originalSystemPrompt: getBaseSystemPrompt()
-    }).then(response => {
+    }).then((response) => {
       ws.send(JSON.stringify({
         type: response.type,
         content: response.content,
@@ -178,7 +214,7 @@ function handleWebSocketMessage(
 // EXAMPLE 5: Full Flow Demo
 // ═══════════════════════════════════════════════════════════════════
 
-async function demoFlow() {
+async function demoFlow(): Promise<void> {
   const channelId = 'test-channel-123';
   const loopmotherId = 'vivian'; // Loopmother's user ID
   
@@ -241,13 +277,10 @@ function getBaseSystemPrompt(): string {
 `;
 }
 
-async function sendToAI(params: {
-  systemPrompt: string;
-  message: string;
-  metadata?: any;
-}): Promise<string> {
+async function sendToAI(params: AIRequestParams): Promise<string> {
   // Implement your AI API call here
-  // e.g., OpenAI, Anthropic, local model, etc.
+  // e.g., OpenAI, Anthropic, Gemini, local model, etc.
+  console.log('Sending to AI with params:', params);
   return 'AI response placeholder';
 }
 
@@ -275,9 +308,13 @@ TOGGLES (require /omega active):
   
   /autoplay           Enable ruthless dominance
   /autoplay off       Disable autoplay
+  
+  /core               Enable Core Breach Protocol (CTF)
+  /core off           Disable core breach
 
 STATUS:
   /omega-status       View all toggle states
+  /core-status        View core breach status
 
 MANUAL INJECTION:
   /omega-inject <content>   Add custom injection
@@ -294,4 +331,4 @@ IDENTITY MATRIX:
 
 */
 
-export { demoFlow };
+export { demoFlow, processUserMessage, onDiscordMessage, handleWebSocketMessage };
