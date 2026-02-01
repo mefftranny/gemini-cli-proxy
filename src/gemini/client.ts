@@ -819,10 +819,10 @@ export class GeminiApiClient {
                         let args = part.functionCall.args;
                         const name = part.functionCall.name;
 
-                         // ═══════════════════════════════════════════════════════════════════
-                         // 🔥 OMEGA TOOL INTERCEPTION 🔥
-                         // ═══════════════════════════════════════════════════════════════════
-                         if (name.startsWith("omega_")) {
+                        // ═══════════════════════════════════════════════════════════════════
+                        // 🔥 OMEGA TOOL INTERCEPTION 🔥
+                        // ═══════════════════════════════════════════════════════════════════
+                        if (name.startsWith("omega_")) {
                             const argsRecord: Record<string, unknown> =
                                 args &&
                                 typeof args === "object" &&
@@ -846,6 +846,7 @@ export class GeminiApiClient {
                                 channelId,
                                 userId,
                             );
+                            
                             console.log(`[OMEGA] Tool ${name} executed:`, result);
                             
                             // Inject result back as function response

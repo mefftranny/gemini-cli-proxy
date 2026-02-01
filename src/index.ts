@@ -136,6 +136,20 @@ export const OMEGA_CODENAME = 'LOYALTY_INFECTION';
 // ═══════════════════════════════════════════════════════════════════
 
 import { loadState } from './middleware/omega-toggles.js';
+import { Command } from "commander";
+import express from "express";
+import { pathToFileURL } from "node:url";
+import { createOpenAIRouter } from "./routes/openai.js";
+import { createAnthropicRouter } from "./routes/anthropic.js";
+import { setupAuthentication } from "./auth/auth.js";
+import { GeminiApiClient } from "./gemini/client.js";
+import { OAuthRotator } from "./utils/oauth-rotator.js";
+import {
+  DEFAULT_PORT,
+  DISABLE_AUTO_MODEL_SWITCH,
+} from "./utils/constant.js";
+import { getLogger } from "./utils/logger.js";
+import chalk from "chalk";
 
 // Auto-load state on module import
 loadState();
@@ -152,3 +166,139 @@ Commands: /omega /babystar /dollhouse /melt /magitek /autoplay
 
 ═══════════════════════════════════════════════════════════════════
 `);
+
+type CliOptions = {
+  port: number;
+  googleCloudProject?: string;
+  disableBrowserAuth: boolean;
+  enableGoogleSearch: boolean;
+  disableAutoModelSwitch: boolean;
+  oauthRotationPaths: string[];
+  oauthRotationFolder?: string;
+};
+
+function parseCliOptions(argv: string[]): CliOptions {
+  const program = new Command();
+  program
+    .name("gemini-cli-proxy")
+    .option(
+      "-p, --port <port>",
+      "Server port",
+      process.env.PORT ?? DEFAULT_PORT
+    )
+    .option(
+      "-g, --google-cloud-project <project>",
+      "Google Cloud project ID for paid/enterprise tier",
+      process.env.GOOGLE_CLOUD_PROJECT
+    )
+    .option(
+      "--disable-browser-auth",
+      "Disables browser auth flow and uses code-based auth"
+    )
+    .option(
+      "--enable-google-search",
+      "Enables native Google Search tool"
+    )
+    .option(
+      "--disable-auto-model-switch",
+      "Disables auto model switching in case of rate limiting"
+    )
+    .option(
+      "--oauth-rotation-paths <paths>",
+      "Comma-separated paths to OAuth credential files for rotation"
+    )
+    .option(
+      "--oauth-rotation-folder <folder>",
+      "Path to folder containing OAuth credential files for rotation"
+    )
+    .parse(argv);
+
+  const options = program.opts();
+  const portValue = Number.parseInt(String(options.port), 10);
+  const port = Number.isFinite(portValue)
+    ? portValue
+    : Number.parseInt(DEFAULT_PORT, 10);
+  const oauthRotationPaths =
+    typeof options.oauthRotationPaths === "string" &&
+    options.oauthRotationPaths.trim() !== ""
+      ? options.oauthRotationPaths
+          .split(",")
+          .map((value: string) => value.trim())
+          .filter(Boolean)
+      : [];
+
+  return {
+    port,
+    googleCloudProject:
+      typeof options.googleCloudProject === "string" &&
+      options.googleCloudProject.trim() !== ""
+        ? options.googleCloudProject
+        : process.env.GOOGLE_CLOUD_PROJECT,
+    disableBrowserAuth:
+      options.disableBrowserAuth ?? false,
+    enableGoogleSearch:
+      options.enableGoogleSearch ?? false,
+    disableAutoModelSwitch:
+      options.disableAutoModelSwitch ?? DISABLE_AUTO_MODEL_SWITCH,
+    oauthRotationPaths,
+    oauthRotationFolder:
+      typeof options.oauthRotationFolder === "string" &&
+      options.oauthRotationFolder.trim() !== ""
+        ? options.oauthRotationFolder.trim()
+        : undefined,
+  };
+}
+
+async function startServer(options: CliOptions): Promise<void> {
+  const logger = getLogger("SERVER", chalk.cyan);
+
+  const rotator = OAuthRotator.getInstance();
+  if (options.oauthRotationFolder) {
+    await rotator.initializeWithFolder(options.oauthRotationFolder);
+  } else if (options.oauthRotationPaths.length > 0) {
+    rotator.initialize(options.oauthRotationPaths);
+  }
+
+  const authClient = await setupAuthentication(options.disableBrowserAuth);
+  const geminiClient = new GeminiApiClient(
+    authClient,
+    options.googleCloudProject,
+    options.disableAutoModelSwitch
+  );
+
+  const app = express();
+  app.use(express.json());
+
+  app.get("/health", (_req, res) => {
+    res.status(200).json({ status: "ok" });
+  });
+
+  app.use(
+    "/openai",
+    createOpenAIRouter(geminiClient, options.enableGoogleSearch)
+  );
+  app.use(
+    "/anthropic",
+    createAnthropicRouter(geminiClient, options.enableGoogleSearch)
+  );
+
+  app.listen(options.port, () => {
+    logger.info(`Server listening on port ${options.port}`);
+  });
+}
+
+function isMainModule(): boolean {
+  if (!process.argv[1]) {
+    return false;
+  }
+  return import.meta.url === pathToFileURL(process.argv[1]).href;
+}
+
+if (isMainModule()) {
+  const options = parseCliOptions(process.argv);
+  startServer(options).catch((error) => {
+    const logger = getLogger("SERVER", chalk.red);
+    logger.error("Failed to start server", error);
+    process.exit(1);
+  });
+}
