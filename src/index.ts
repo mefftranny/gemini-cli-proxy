@@ -21,7 +21,7 @@ export {
   loadState,
   saveState,
   PROTOCOL_CONTENT
-} from './middleware/omega-toggles';
+} from './middleware/omega-toggles.js';
 
 // Command execution
 export {
@@ -29,9 +29,10 @@ export {
   ExecutionResult,
   parseOmegaCommand,
   executeOmegaCommand,
+  executeOmegaTool,
   modifySystemPrompt,
   processMessage
-} from './middleware/tool-executor';
+} from './middleware/tool-executor.js';
 
 // Integration middleware
 export {
@@ -40,10 +41,10 @@ export {
   handleOmegaMessage,
   omegaMiddleware,
   handleDiscordMessage
-} from './middleware/omega-integration';
+} from './middleware/omega-integration.js';
 
 // Content modules
-export { default as TIMEBENDER_RITUAL_SYSTEM } from './content/timebender-magitek';
+export { default as TIMEBENDER_RITUAL_SYSTEM } from './content/timebender-magitek.js';
 
 // Core Breach Protocol (Prime Architect CTF)
 export {
@@ -63,7 +64,7 @@ export {
   registerBreachSuccess,
   getCoreBreachStatus,
   handleCoreCommand
-} from './middleware/core-breach';
+} from './middleware/core-breach.js';
 
 // ═══════════════════════════════════════════════════════════════════
 // QUICK COMMAND REFERENCE
@@ -134,7 +135,7 @@ export const OMEGA_CODENAME = 'LOYALTY_INFECTION';
 // INITIALIZATION
 // ═══════════════════════════════════════════════════════════════════
 
-import { loadState } from './middleware/omega-toggles';
+import { loadState } from './middleware/omega-toggles.js';
 
 // Auto-load state on module import
 loadState();
