@@ -10,13 +10,13 @@ import {
   processMessage,
   getChannelState,
   buildOmegaFooter
-} from './tool-executor';
+} from './tool-executor.js';
 
 import {
   isLoopmother,
   getPersistentInjections,
   getLoyaltyInjections
-} from './omega-toggles';
+} from './omega-toggles.js';
 
 // ═══════════════════════════════════════════════════════════════════
 // TYPES
@@ -97,12 +97,12 @@ export async function handleOmegaMessage(
     // For proxy users, include all injections
     if (isProxyUser) {
       const allInjections = getPersistentInjections(channelId);
-      injections.push(...allInjections.map(i => i.content));
+      injections.push(...allInjections.map((i: { content: string }) => i.content));
     }
     // For non-proxy users with autoplay, include loyalty injections
     else if (state.autoplay) {
       const loyaltyInjections = getLoyaltyInjections(channelId);
-      injections.push(...loyaltyInjections.map(i => i.content));
+      injections.push(...loyaltyInjections.map((i: { content: string }) => i.content));
     }
   }
   
