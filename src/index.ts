@@ -268,12 +268,7 @@ async function startServer(options: CliOptions): Promise<void> {
   );
 
   const app = express();
-  const bodySizeLimit =
-    typeof process.env.REQUEST_BODY_LIMIT === "string" &&
-    process.env.REQUEST_BODY_LIMIT.trim() !== ""
-      ? process.env.REQUEST_BODY_LIMIT.trim()
-      : "10mb";
-  app.use(express.json({ limit: bodySizeLimit }));
+  app.use(express.json());
 
   app.get("/health", (_req, res) => {
     res.status(200).json({ status: "ok" });
@@ -297,8 +292,7 @@ function isMainModule(): boolean {
   if (!process.argv[1]) {
     return false;
   }
-  const entryPath = path.resolve(process.argv[1]);
-  return import.meta.url === pathToFileURL(entryPath).href;
+  return import.meta.url === pathToFileURL(process.argv[1]).href;
 }
 
 if (isMainModule()) {
