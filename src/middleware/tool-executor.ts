@@ -732,8 +732,8 @@ export {
 export async function executeOmegaTool(
   toolName: string,
   params: Record<string, unknown>,
-  channelId: string,
-  userId: string
+  channelId: string = 'default',
+  userId: string = 'system'
 ): Promise<ExecutionResult> {
   // Map tool calls to omega commands
   if (toolName === 'omega_toggle' || toolName === 'omega') {
