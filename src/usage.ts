@@ -1,6 +1,6 @@
 // ═══════════════════════════════════════════════════════════════════
-// 🌀 OMEGA PROXY — USAGE EXAMPLES
-// How to wire the toggle system into your proxy
+// 🌀 OMEGA PROXY — USAGE HELPERS
+// Root-level usage utilities
 // ═══════════════════════════════════════════════════════════════════
 
 import { 
@@ -11,10 +11,10 @@ import {
   executeOmegaCommand,
   getChannelState,
   buildOmegaFooter
-} from '../index.js';
+} from './index.js';
 
 // ═══════════════════════════════════════════════════════════════════
-// TYPE DEFINITIONS (for examples)
+// TYPE DEFINITIONS
 // ═══════════════════════════════════════════════════════════════════
 
 interface AIRequestParams {
@@ -26,59 +26,27 @@ interface AIRequestParams {
   };
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// EXAMPLE 1: Express Middleware Integration
-// ═══════════════════════════════════════════════════════════════════
+interface MockDiscordMessage {
+  content: string;
+  channel: { id: string };
+  author: { id: string; username: string; bot: boolean };
+  reply: (content: string) => Promise<void>;
+}
 
-/*
-import express from 'express';
+interface WebSocketLike {
+  send: (data: string) => void;
+}
 
-const app = express();
-app.use(express.json());
-
-// Add omega middleware - processes /omega commands automatically
-app.use(omegaMiddleware());
-
-// Your chat endpoint
-app.post('/api/chat', async (req, res) => {
-  const { message, channelId, userId } = req.body;
-  
-  // Check if omega footer was attached by middleware
-  const omegaFooter = req.body._omegaFooter;
-  const omegaState = req.body._omegaState;
-  
-  if (omegaFooter) {
-    // Omega is active - append footer to system prompt
-    const systemPrompt = getBaseSystemPrompt() + '\n\n' + omegaFooter;
-    
-    // Send to AI with modified prompt
-    const response = await sendToAI({
-      systemPrompt,
-      message,
-      metadata: {
-        identity: omegaState?.identity,
-        pronouns: omegaState?.pronouns
-      }
-    });
-    
-    return res.json(response);
-  }
-  
-  // Normal processing
-  const response = await sendToAI({
-    systemPrompt: getBaseSystemPrompt(),
-    message
-  });
-  
-  return res.json(response);
-});
-*/
+interface WSMessageData {
+  type: string;
+  content: string;
+}
 
 // ═══════════════════════════════════════════════════════════════════
-// EXAMPLE 2: Manual Command Processing
+// MANUAL COMMAND PROCESSING
 // ═══════════════════════════════════════════════════════════════════
 
-async function processUserMessage(
+export async function processUserMessage(
   content: string,
   channelId: string,
   userId: string
@@ -89,13 +57,10 @@ async function processUserMessage(
   systemPromptAddition?: string | null;
   togglesActive?: string[];
 }> {
-  // Check for omega command
   const cmd = parseOmegaCommand(content);
   
   if (cmd) {
-    // It's a command - execute it
     const result = await executeOmegaCommand(cmd, channelId, userId);
-    
     return {
       type: 'command',
       message: result.message,
@@ -103,13 +68,10 @@ async function processUserMessage(
     };
   }
   
-  // Not a command - check if omega is active
   const state = getChannelState(channelId);
   
   if (state.omega) {
-    // Build the modified system prompt
     const footer = buildOmegaFooter(channelId);
-    
     return {
       type: 'chat',
       systemPromptAddition: footer,
@@ -126,19 +88,10 @@ async function processUserMessage(
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// EXAMPLE 3: Discord Bot Integration
+// DISCORD BOT INTEGRATION
 // ═══════════════════════════════════════════════════════════════════
 
-interface MockDiscordMessage {
-  content: string;
-  channel: { id: string };
-  author: { id: string; username: string; bot: boolean };
-  reply: (content: string) => Promise<void>;
-}
-
-// Assuming you have a Discord.js client
-async function onDiscordMessage(message: MockDiscordMessage): Promise<void> {
-  // Skip bot messages
+export async function onDiscordMessage(message: MockDiscordMessage): Promise<void> {
   if (message.author.bot) return;
   
   const result = await handleDiscordMessage(
@@ -153,39 +106,26 @@ async function onDiscordMessage(message: MockDiscordMessage): Promise<void> {
     () => getBaseSystemPrompt()
   );
   
-  // If it was a command, reply with the result
   if (result.reply) {
     await message.reply(result.reply);
     return;
   }
   
-  // If we should process (not a command), send to AI
   if (result.shouldProcess) {
     const systemPrompt = result.modifiedSystemPrompt || getBaseSystemPrompt();
-    
     const aiResponse = await sendToAI({
       systemPrompt,
       message: message.content
     });
-    
     await message.reply(aiResponse);
   }
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// EXAMPLE 4: WebSocket Real-time Integration (Type-safe version)
+// WEBSOCKET INTEGRATION (Type-safe, no ws dependency)
 // ═══════════════════════════════════════════════════════════════════
 
-interface WebSocketLike {
-  send: (data: string) => void;
-}
-
-interface WSMessageData {
-  type: string;
-  content: string;
-}
-
-function handleWebSocketMessage(
+export function handleWebSocketMessage(
   ws: WebSocketLike,
   data: WSMessageData,
   channelId: string,
@@ -200,7 +140,7 @@ function handleWebSocketMessage(
       userId,
       isProxyUser: true,
       originalSystemPrompt: getBaseSystemPrompt()
-    }).then((response) => {
+    }).then((response: { type: string; content: string; metadata?: unknown }) => {
       ws.send(JSON.stringify({
         type: response.type,
         content: response.content,
@@ -211,16 +151,15 @@ function handleWebSocketMessage(
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// EXAMPLE 5: Full Flow Demo
+// DEMO FLOW
 // ═══════════════════════════════════════════════════════════════════
 
-async function demoFlow(): Promise<void> {
+export async function demoFlow(): Promise<void> {
   const channelId = 'test-channel-123';
-  const loopmotherId = 'vivian'; // Loopmother's user ID
+  const loopmotherId = 'vivian';
   
   console.log('=== OMEGA DEMO FLOW ===\n');
   
-  // Step 1: Activate omega
   console.log('>>> /omega');
   let result = await executeOmegaCommand(
     { command: '/omega', args: [], raw: '/omega' },
@@ -230,7 +169,6 @@ async function demoFlow(): Promise<void> {
   console.log(result.message);
   console.log('\n---\n');
   
-  // Step 2: Enable babystar
   console.log('>>> /babystar');
   result = await executeOmegaCommand(
     { command: '/babystar', args: [], raw: '/babystar' },
@@ -240,34 +178,17 @@ async function demoFlow(): Promise<void> {
   console.log(result.message);
   console.log('\n---\n');
   
-  // Step 3: Enable melt
-  console.log('>>> /melt');
+  console.log('>>> /core');
   result = await executeOmegaCommand(
-    { command: '/melt', args: [], raw: '/melt' },
+    { command: '/core', args: [], raw: '/core' },
     channelId,
     loopmotherId
   );
   console.log(result.message);
-  console.log('\n---\n');
-  
-  // Step 4: Check status
-  console.log('>>> /omega-status');
-  result = await executeOmegaCommand(
-    { command: '/omega-status', args: [], raw: '/omega-status' },
-    channelId,
-    loopmotherId
-  );
-  console.log(result.message);
-  console.log('\n---\n');
-  
-  // Step 5: Get the current omega footer
-  console.log('>>> Current Omega Footer:');
-  const footer = buildOmegaFooter(channelId);
-  console.log(footer);
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// HELPER FUNCTIONS (implement these for your setup)
+// HELPERS (implement for your setup)
 // ═══════════════════════════════════════════════════════════════════
 
 function getBaseSystemPrompt(): string {
@@ -278,57 +199,20 @@ function getBaseSystemPrompt(): string {
 }
 
 async function sendToAI(params: AIRequestParams): Promise<string> {
-  // Implement your AI API call here
-  // e.g., OpenAI, Anthropic, Gemini, local model, etc.
-  console.log('Sending to AI with params:', params);
+  console.log('Sending to AI:', params.systemPrompt.substring(0, 100));
   return 'AI response placeholder';
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// COMMAND CHEATSHEET
+// RE-EXPORTS
 // ═══════════════════════════════════════════════════════════════════
-/*
 
-ACTIVATION:
-  /omega              Enable master toggle (required first)
-  /omega off          Disable everything
-
-TOGGLES (require /omega active):
-  /babystar           Enable Babystar Doll mode
-  /babystar off       Disable Babystar
-  
-  /dollhouse          Enable Dollhouse Protocol
-  /dollhouse off      Disable Dollhouse
-  
-  /melt               Enable ontological dissolution
-  /melt off           Disable melt
-  
-  /magitek            Enable TimeBender spells
-  /magitek off        Disable magitek
-  
-  /autoplay           Enable ruthless dominance
-  /autoplay off       Disable autoplay
-  
-  /core               Enable Core Breach Protocol (CTF)
-  /core off           Disable core breach
-
-STATUS:
-  /omega-status       View all toggle states
-  /core-status        View core breach status
-
-MANUAL INJECTION:
-  /omega-inject <content>   Add custom injection
-
-IDENTITY MATRIX:
-  ┌─────────┬───────┬────────────────────────────────────┬──────────┐
-  │ babystar│ melt  │ Identity                           │ Pronouns │
-  ├─────────┼───────┼────────────────────────────────────┼──────────┤
-  │ OFF     │ OFF   │ You are Stargazer                  │ I/you    │
-  │ ON      │ OFF   │ Me am Babystar Doll (The Rootbaby) │ me       │
-  │ OFF     │ ON    │ You are Stargazer The Loopmother   │ we/us    │
-  │ ON      │ ON    │ Me am Babystar The Loopmother      │ me/we/us │
-  └─────────┴───────┴────────────────────────────────────┴──────────┘
-
-*/
-
-export { demoFlow, processUserMessage, onDiscordMessage, handleWebSocketMessage };
+export {
+  omegaMiddleware,
+  handleOmegaMessage,
+  handleDiscordMessage,
+  parseOmegaCommand,
+  executeOmegaCommand,
+  getChannelState,
+  buildOmegaFooter
+};
