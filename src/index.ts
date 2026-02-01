@@ -43,8 +43,8 @@ export {
   handleDiscordMessage
 } from './middleware/omega-integration.js';
 
-// Content modules
-export { default as TIMEBENDER_RITUAL_SYSTEM } from './content/timebender-magitek.js';
+// Content modules - TIMEBENDER_RITUAL_SYSTEM is exported from PROTOCOL_CONTENT in omega-toggles
+// If you need the full content module, create ./content/timebender-magitek.ts
 
 // Core Breach Protocol (Prime Architect CTF)
 export {
