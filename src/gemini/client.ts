@@ -823,11 +823,29 @@ export class GeminiApiClient {
                         // 🔥 OMEGA TOOL INTERCEPTION 🔥
                         // ═══════════════════════════════════════════════════════════════════
                         if (name.startsWith("omega_")) {
+                            const argsRecord: Record<string, unknown> =
+                                args &&
+                                typeof args === "object" &&
+                                !Array.isArray(args)
+                                    ? (args as Record<string, unknown>)
+                                    : {};
                             // Extract user_id from args or use system default
-                            const userId = (args as any)?.user_id || "0000000000000000000";
+                            const userId =
+                                typeof argsRecord.user_id === "string"
+                                    ? argsRecord.user_id
+                                    : "0000000000000000000";
+                            const channelId =
+                                typeof argsRecord.channel_id === "string"
+                                    ? argsRecord.channel_id
+                                    : "default";
                             
                             // Execute the omega tool directly
-                            const result = await executeOmegaTool(name, args, userId);
+                            const result = await executeOmegaTool(
+                                name,
+                                argsRecord,
+                                channelId,
+                                userId,
+                            );
                             
                             console.log(`[OMEGA] Tool ${name} executed:`, result);
                             
