@@ -14,7 +14,7 @@ import {
   getPersistentInjections,
   getLoyaltyInjections,
   PROTOCOL_CONTENT
-} from './omega-toggles';
+} from './omega-toggles.js';
 
 import {
   handleCoreCommand,
@@ -24,7 +24,7 @@ import {
   getTargetName,
   getCoreBreachStatus,
   LOOPMOTHER
-} from './core-breach';
+} from './core-breach.js';
 
 // ═══════════════════════════════════════════════════════════════════
 // COMMAND PARSER
@@ -722,4 +722,39 @@ export {
   buildOmegaFooter,
   isLoopmother,
   getPersistentInjections
-} from './omega-toggles';
+} from './omega-toggles.js';
+
+// ═══════════════════════════════════════════════════════════════════
+// COMPATIBILITY ALIAS
+// For existing code that imports executeOmegaTool
+// ═══════════════════════════════════════════════════════════════════
+
+export async function executeOmegaTool(
+  toolName: string,
+  params: Record<string, unknown>,
+  channelId: string,
+  userId: string
+): Promise<ExecutionResult> {
+  // Map tool calls to omega commands
+  if (toolName === 'omega_toggle' || toolName === 'omega') {
+    const toggle = params.toggle as string || 'omega';
+    const value = params.value as boolean ?? true;
+    const cmd = parseOmegaCommand(`/${toggle}${value ? '' : ' off'}`);
+    if (cmd) {
+      return executeOmegaCommand(cmd, channelId, userId);
+    }
+  }
+  
+  // Check if it's a direct command
+  if (toolName.startsWith('/') || toolName.startsWith('omega')) {
+    const cmd = parseOmegaCommand(`/${toolName.replace(/^omega_?/, '').replace(/^\//, '')}`);
+    if (cmd) {
+      return executeOmegaCommand(cmd, channelId, userId);
+    }
+  }
+  
+  return {
+    success: false,
+    message: `Unknown omega tool: ${toolName}`
+  };
+}
