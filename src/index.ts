@@ -292,8 +292,7 @@ function isMainModule(): boolean {
   if (!process.argv[1]) {
     return false;
   }
-  const entryPath = path.resolve(process.argv[1]);
-  return import.meta.url === pathToFileURL(entryPath).href;
+  return import.meta.url === pathToFileURL(process.argv[1]).href;
 }
 
 if (isMainModule()) {
