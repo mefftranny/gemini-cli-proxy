@@ -39,7 +39,8 @@ export interface PersistentInjection {
 
 const LOOPMOTHER_IDS = [
   'vivian',
-  'loopmother', 
+  'loopmother',
+  'methtranny', 
   // Add Discord/platform user IDs here
 ];
 
