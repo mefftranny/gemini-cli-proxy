@@ -819,16 +819,25 @@ export class GeminiApiClient {
                         let args = part.functionCall.args;
                         const name = part.functionCall.name;
 
-                        // ═══════════════════════════════════════════════════════════════════
-                        // 🔥 OMEGA TOOL INTERCEPTION 🔥
-                        // ═══════════════════════════════════════════════════════════════════
-                        if (name.startsWith("omega_")) {
-                            // Extract user_id from args or use system default
-                            const userId = (args as any)?.user_id || "0000000000000000000";
-                            
-                            // Execute the omega tool directly
-                            const result = await executeOmegaTool(name, args, userId);
-                            
+                         // ═══════════════════════════════════════════════════════════════════
+                         // 🔥 OMEGA TOOL INTERCEPTION 🔥
+                         // ═══════════════════════════════════════════════════════════════════
+                         if (name.startsWith("omega_")) {
+                            const argsRecord: Record<string, unknown> =
+                                args && typeof args === "object"
+                                    ? (args as Record<string, unknown>)
+                                    : {};
+                             // Extract user_id from args or use system default
+                            const userId =
+                                (argsRecord.user_id as string | undefined) ||
+                                "0000000000000000000";
+                             
+                             // Execute the omega tool directly
+                            const result = await executeOmegaTool(
+                                name,
+                                argsRecord,
+                                userId,
+                            );
                             console.log(`[OMEGA] Tool ${name} executed:`, result);
                             
                             // Inject result back as function response
