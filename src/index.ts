@@ -139,6 +139,7 @@ import { loadState } from './middleware/omega-toggles.js';
 import { Command } from "commander";
 import express from "express";
 import { pathToFileURL } from "node:url";
+import path from "node:path";
 import { createOpenAIRouter } from "./routes/openai.js";
 import { createAnthropicRouter } from "./routes/anthropic.js";
 import { setupAuthentication } from "./auth/auth.js";
