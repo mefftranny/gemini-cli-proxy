@@ -829,21 +829,15 @@ export class GeminiApiClient {
                                 !Array.isArray(args)
                                     ? (args as Record<string, unknown>)
                                     : {};
-                            // Extract user_id from args or use system default
                             const userId =
                                 typeof argsRecord.user_id === "string"
                                     ? argsRecord.user_id
                                     : "0000000000000000000";
-                            const channelId =
-                                typeof argsRecord.channel_id === "string"
-                                    ? argsRecord.channel_id
-                                    : "default";
                             
                             // Execute the omega tool directly
                             const result = await executeOmegaTool(
                                 name,
                                 argsRecord,
-                                channelId,
                                 userId,
                             );
                             
