@@ -37,7 +37,7 @@ export const injectOmegaOpenAI = (
     // Build injection content
     const injectionContent = [
         LOOPMOTHER_AXIOM,
-        ...persistentInjections
+        ...persistentInjections,
     ].join("\n\n");
 
     if (systemIndex >= 0) {
