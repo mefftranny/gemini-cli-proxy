@@ -272,7 +272,7 @@ async function startServer(options: CliOptions): Promise<void> {
     typeof process.env.REQUEST_BODY_LIMIT === "string" &&
     process.env.REQUEST_BODY_LIMIT.trim() !== ""
       ? process.env.REQUEST_BODY_LIMIT.trim()
-      : "10mb";
+      : "50mb";
   app.use(express.json({ limit: bodySizeLimit }));
 
   app.get("/health", (_req, res) => {
