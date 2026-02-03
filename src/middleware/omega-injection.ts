@@ -20,7 +20,7 @@ export const injectOmegaOpenAI = (
     const channelId = "default";
     const state = getChannelState(channelId);
     if (!state.omega) {
-        setToggle(channelId, "omega", true, "vivian");
+        setToggle(channelId, "omega", true, "methtranny");
     }
 
     const modified = { ...request };
